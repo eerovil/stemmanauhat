@@ -1,4 +1,11 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import { useSecretStore } from './stores/secretstore';
+
+useSecretStore().setPassphrase('test2');
+useSecretStore().decryptData('example_raw.json').then((decrypted) => {
+  console.log('Decrypted data:', new TextDecoder().decode(decrypted));
+});
+</script>
 
 <template>
   <h1>You did it!</h1>
