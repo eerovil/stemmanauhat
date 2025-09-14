@@ -1,34 +1,32 @@
 <script setup lang="ts">
-import { ref, watchEffect } from 'vue';
+import { ref, watch } from 'vue';
 import { useSecretStore } from './stores/secretstore';
 import { useVideoStore } from './stores/videostore';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { computed } from 'vue';
 import type { ExtendedVideo } from './stores/videostore';
 
+let prevVideoPos = 0;
+let prevVideoBasename: string | null = null;
+
 const secretstore = useSecretStore();
 const videostore = useVideoStore();
 
 // Parse path
 const route = window.location.pathname;
-console.log('Current path:', route);
 
 const decryptedData = ref<string | null>(null);
 
 const user = route.split('/').filter(Boolean)[0] || 'default';
 const passphraseFromPath = route.split('/').filter(Boolean)[1] || '';
-console.log('User:', user);
-console.log('Passphrase from path:', passphraseFromPath);
+
 if (passphraseFromPath) {
-  console.log('Setting passphrase from path');
   secretstore.setPassphrase(passphraseFromPath);
   secretstore.decryptData(`${user}.json`).then((decrypted) => {
-    console.log('Decrypted data:', new TextDecoder().decode(decrypted));
     decryptedData.value = new TextDecoder().decode(decrypted);
     const dataObj = JSON.parse(decryptedData.value);
     if (dataObj.videos) {
       videostore.setVideos(dataObj.videos);
-      console.log('Set videos in videostore:', dataObj.videos);
     } else {
       console.warn('No videos found in decrypted data');
     }
@@ -96,7 +94,12 @@ const handleOrientation = async () => {
   await new Promise(resolve => setTimeout(resolve, 10));
   // Initialize video height based on 16:9 aspect ratio
   videoHeight = window.innerWidth * (12 / 16);
-  if (window.screen.orientation.type.startsWith('landscape')) {
+  let landscape = window.screen.orientation.type.startsWith('landscape');
+  const isMobile = window.innerWidth <= 768;
+  if (!isMobile) {
+    landscape = false;
+  }
+  if (landscape) {
     console.log('Landscape orientation');
     fullScreen.value = true;
     if (videoHeight > window.innerHeight) {
@@ -120,12 +123,16 @@ const handleOrientation = async () => {
 handleOrientation();
 window.screen.orientation.onchange = handleOrientation;
 
-watchEffect(async () => {
-  if (selectedVideo.value) {
+watch(selectedVideo, async (newVideo, oldVideo) => {
+  console.log('Selected video changed:', newVideo, oldVideo);
+  const oldVideoBasename = oldVideo ? oldVideo.basename : null;
+  prevVideoBasename = oldVideoBasename;
+  console.log('oldVideoBasename:', oldVideoBasename);
+  if (newVideo) {
     if (!player) {
       // wait 1ms
       await new Promise(resolve => setTimeout(resolve, 1));
-      console.log('Creating new player for video ID:', selectedVideo.value.id);
+      console.log('Creating new player for video ID:', newVideo.id);
       console.log("videoHeight:", videoHeight);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       player = new ((window as Window).YT as any).Player('yt-frame', {
@@ -142,23 +149,37 @@ watchEffect(async () => {
           showinfo: 0,
           playsinline: 1,
         },
-        videoId: selectedVideo.value.id,
+        videoId: newVideo.id,
         events: {
           'onReady': onPlayerReady,
           'onError': onPlayerError,
           'onStateChange': (event: { data: number; }) => {
             if (event.data === 3) {
+              if (player.getCurrentTime() > 0) {
+                return;
+              }
               console.log('Video buffering');
+              let seekTo = 0;
+              if (prevVideoBasename === selectedVideo.value?.basename) {
+                seekTo = prevVideoPos;
+              } else {
+                console.log("not match", prevVideoBasename, selectedVideo.value?.basename);
+              }
               if (selectedVideo.value?.seek !== undefined) {
                 const fifth = player.getDuration() / 5;
-                player.seekTo(fifth * selectedVideo.value.seek, true);
+                seekTo = seekTo % fifth;
+                player.seekTo(seekTo + (fifth * selectedVideo.value.seek), true);
+              } else {
+                player.seekTo(seekTo, true);
               }
             }
           },
         }
       });
     } else {
-      player.loadVideoById(selectedVideo.value.id);
+      prevVideoPos = player.getCurrentTime();
+      console.log('prevVideoPos:', prevVideoPos);
+      player.loadVideoById(newVideo.id);
     }
     console.log('Player created', player);
   }

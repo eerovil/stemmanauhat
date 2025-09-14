@@ -23,7 +23,6 @@ export const useVideoStore = defineStore('video', () => {
       const basename = vid.title.replace(partnameRegex, "").trim();
       return { ...vid, part, basename };
     });
-    console.log('Videos set in store:', videos.value);
   }
   const videosByBasename = computed(() => {
     const ret: { [key: string]: ExtendedVideo[] } = {};
