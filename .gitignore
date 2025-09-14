@@ -1,1 +1,3 @@
 .pnpm-store
+# never commit plaintext
+/stores/secrets/raw/**
