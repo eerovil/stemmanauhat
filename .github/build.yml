@@ -1,7 +1,7 @@
 name: pnpm Example Workflow
 on:
-  push: 
-  branches: [ master]
+  push:
+    branches: [ master]
 
   permissions:
     contents: read
@@ -11,8 +11,8 @@ on:
   jobs:
     build:
       environment:
-      name: github-pages
-  url: ${{steps.deployment.outputs.page_url}}
+        name: github-pages
+        url: ${{steps.deployment.outputs.page_url}}
 runs-on: ubuntu-latest
 
 steps:
