@@ -85,7 +85,11 @@ const onPlayerError = (event: any) => {
   }
   console.error('YouTube Player Error:', errorMsg);
 }
-
+function detectMobile() {
+  const ua = navigator.userAgent || navigator.vendor || window.opera;
+  const isSmallScreen = window.matchMedia("(max-width: 768px)").matches;
+  return /android|iphone|ipod|blackberry|iemobile|opera mini/i.test(ua) || isSmallScreen;
+}
 let videoHeight = 320;
 const fullScreen = ref(false);
 const handleOrientation = async () => {
@@ -94,8 +98,9 @@ const handleOrientation = async () => {
   // Initialize video height based on 16:9 aspect ratio
   videoHeight = window.innerWidth * (12 / 16);
   let landscape = window.screen.orientation.type.startsWith('landscape');
-  const isMobile = window.innerWidth <= 768;
+  const isMobile = detectMobile();
   if (!isMobile) {
+    console.log('Not a mobile device, forcing portrait mode');
     landscape = false;
   }
   if (landscape) {
@@ -236,7 +241,7 @@ watch(selectedVideo, async (newVideo, oldVideo) => {
 }
 
 .player-margin {
-  height: 320px;
+  height: 400px;
   /* Height of the player + some margin */
 }
 
