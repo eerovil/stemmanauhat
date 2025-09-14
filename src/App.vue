@@ -93,8 +93,8 @@ function detectMobile() {
 let videoHeight = 320;
 const fullScreen = ref(false);
 const handleOrientation = async () => {
-  // Wait 10 ms to allow orientation change to complete
-  await new Promise(resolve => setTimeout(resolve, 10));
+  // Wait 500 ms to allow orientation change to complete
+  await new Promise(resolve => setTimeout(resolve, 500));
   // Initialize video height based on 16:9 aspect ratio
   videoHeight = window.innerWidth * (12 / 16);
   let landscape = window.screen.orientation.type.startsWith('landscape');
