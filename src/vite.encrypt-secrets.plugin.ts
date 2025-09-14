@@ -124,7 +124,10 @@ export default function EncryptSecrets(options: EncryptSecretsOptions = {}): Plu
 
   async function fullEncrypt(logger: { info: Function; error: Function }) {
     const pass = getPass();
-    if (!pass) throw new Error("SECRETS_PASSPHRASE is not set.");
+    if (!pass) {
+      logger.info("[encrypt-secrets] SECRETS_PASSPHRASE not set; skipping encryption.");
+      return;
+    }
     await encryptTree({ rawDir: RAW_DIR, encDir: ENC_DIR, passphrase: pass, iterations: ITER });
     if (PRUNE) await pruneStale({ rawDir: RAW_DIR, encDir: ENC_DIR });
     logger.info(`[encrypt-secrets] Encrypted ${RAW_DIR} -> ${ENC_DIR} (iter=${ITER})`);
