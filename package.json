@@ -14,7 +14,10 @@
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
     "lint": "eslint . --fix",
-    "format": "prettier --write src/"
+    "format": "prettier --write src/",
+    "update:videos": "tsx src/stores/secrets/update-videos.ts",
+    "update:videos:all": "tsx src/stores/secrets/update-videos.ts user1 user2",
+    "check:changes": "git status --porcelain"
   },
   "dependencies": {
     "pinia": "^3.0.3",
@@ -35,6 +38,7 @@
     "typescript": "~5.8.0",
     "vite": "^7.0.6",
     "vite-plugin-vue-devtools": "^8.0.0",
-    "vue-tsc": "^3.0.4"
+    "vue-tsc": "^3.0.4",
+    "tsx": "^4.19.0"
   }
 }
