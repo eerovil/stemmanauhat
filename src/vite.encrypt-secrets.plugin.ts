@@ -52,10 +52,9 @@ function encryptBufferPBKDF2(
 async function encryptTree(opts: {
   rawDir: string;
   encDir: string;
-  passphrase: string;
   iterations: number;
 }) {
-  const { rawDir, encDir, passphrase, iterations } = opts;
+  const { rawDir, encDir, iterations } = opts;
   await fs.mkdir(encDir, { recursive: true });
   const files = await listFilesRecursive(rawDir);
 
@@ -65,6 +64,16 @@ async function encryptTree(opts: {
       const dstPath = path.join(encDir, rel) + ".json";
       await fs.mkdir(path.dirname(dstPath), { recursive: true });
       const buf = await fs.readFile(absSrc);
+      // Use passphrase from file if available, else from env
+      const passphrase =
+        (JSON.parse(buf.toString("utf8")) as { passphrase?: string }).passphrase ||
+        process.env.SECRETS_PASSPHRASE
+      if (!passphrase) {
+        throw new Error(
+          `No passphrase found for file ${absSrc}. ` +
+          `Set env SECRETS_PASSPHRASE or add {"passphrase": "..."} to the JSON file.`
+        );
+      }
       const payload = encryptBufferPBKDF2(passphrase, buf, iterations);
       await fs.writeFile(dstPath, JSON.stringify(payload));
     })
@@ -120,15 +129,8 @@ export default function EncryptSecrets(options: EncryptSecretsOptions = {}): Plu
     ENC_DIR + path.sep,
   ];
 
-  const getPass = () => process.env.SECRETS_PASSPHRASE || "";
-
   async function fullEncrypt(logger: { info: Function; error: Function }) {
-    const pass = getPass();
-    if (!pass) {
-      logger.info("[encrypt-secrets] SECRETS_PASSPHRASE not set; skipping encryption.");
-      return;
-    }
-    await encryptTree({ rawDir: RAW_DIR, encDir: ENC_DIR, passphrase: pass, iterations: ITER });
+    await encryptTree({ rawDir: RAW_DIR, encDir: ENC_DIR, iterations: ITER });
     if (PRUNE) await pruneStale({ rawDir: RAW_DIR, encDir: ENC_DIR });
     logger.info(`[encrypt-secrets] Encrypted ${RAW_DIR} -> ${ENC_DIR} (iter=${ITER})`);
   }
@@ -147,14 +149,6 @@ export default function EncryptSecrets(options: EncryptSecretsOptions = {}): Plu
 
     // Dev: initial pass + re-encrypt all on any change (debounced)
     configureServer(server: ViteDevServer) {
-      const pass = getPass();
-      if (!pass) {
-        const msg = "[encrypt-secrets] SECRETS_PASSPHRASE not set; skipping dev encryption.";
-        if (options.failOnMissingPassphraseDev) throw new Error(msg);
-        server.config.logger.warn(msg);
-        return;
-      }
-
       const onAny = debounce((...args: unknown[]) => {
         const absPath = args[1] as string | undefined;
         if (absPath && shouldIgnore(absPath)) return;
