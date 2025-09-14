@@ -220,6 +220,11 @@ watch(selectedVideo, async (newVideo, oldVideo) => {
   </div>
 </template>
 
+<style>
+body {
+  margin: 0;
+}
+</style>
 <style scoped>
 .player {
   position: fixed;
@@ -247,6 +252,14 @@ watch(selectedVideo, async (newVideo, oldVideo) => {
 
 .video-group>h3 {
   margin: 0;
+}
+
+.video-group {
+  padding: 0.5rem;
+}
+
+.video-group:nth-child(2n) {
+  background-color: #f0f0f0;
 }
 
 .video-button-wrapper {

@@ -20,7 +20,7 @@ export const useVideoStore = defineStore('video', () => {
     videos.value = v.map(vid => {
       const partMatch = vid.title.match(partnameRegex);
       const part = (partMatch ? partMatch[0] : "UNKNOWN").replace('ALL', 'Kaikki');
-      const basename = vid.title.replace(partnameRegex, "").trim();
+      const basename = vid.title.replace(partnameRegex, "").replace("stemmanauha", "").replace("Stemmanauha", "").trim();
       return { ...vid, part, basename };
     });
   }
