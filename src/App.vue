@@ -9,7 +9,7 @@ const passphrase = computed({
   get: () => secretstore.getPassphrase(),
   set: (val: string) => {
     secretstore.setPassphrase(val);
-    secretstore.decryptData('example_raw.json').then((decrypted) => {
+    secretstore.decryptData('jm.json').then((decrypted) => {
       decryptedData.value = new TextDecoder().decode(decrypted);
       console.log('Decrypted data:', decryptedData.value);
     }).catch((err) => {
