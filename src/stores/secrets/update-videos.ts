@@ -13,9 +13,16 @@ type EncryptedPayload = {
   algo: "AES-GCM-256";
 };
 
+export type Video = {
+  id: string;
+  title: string;
+  publishedAt: string; // ISO date
+  thumbnail: string;   // URL
+}
+
 type PlainData = {
   playlist_id: string;
-  video_ids: string[]; // current list we want to refresh
+  videos: Video[]; // current list we want to refresh
   // ...anything else you store
 };
 
@@ -25,13 +32,13 @@ const PBKDF2_ITER = Number(process.env.SECRETS_PBKDF2_ITER || 300_000);
 
 if (!YOUTUBE_API_KEY) throw new Error("Missing env YOUTUBE_API_KEY");
 
-async function fetchPlaylistVideoIds(playlistId: string): Promise<string[]> {
+async function fetchPlaylistVideos(playlistId: string): Promise<Video[]> {
   let pageToken: string | undefined = undefined;
-  const all: string[] = [];
+  const all: Video[] = [];
 
   do {
     const url = new URL("https://www.googleapis.com/youtube/v3/playlistItems");
-    url.searchParams.set("part", "contentDetails");
+    url.searchParams.set("part", "contentDetails,snippet");
     url.searchParams.set("maxResults", "50");
     url.searchParams.set("playlistId", playlistId);
     url.searchParams.set("key", YOUTUBE_API_KEY);
@@ -41,8 +48,16 @@ async function fetchPlaylistVideoIds(playlistId: string): Promise<string[]> {
     if (!res.ok) throw new Error(`YouTube HTTP ${res.status}`);
     const data = await res.json();
     for (const item of data.items || []) {
+      console.log(item);
       const vid = item?.contentDetails?.videoId;
-      if (vid) all.push(vid);
+      if (vid) {
+        all.push({
+          id: vid,
+          title: item.snippet?.title || "",
+          publishedAt: item.contentDetails.videoPublishedAt || "",
+          thumbnail: item.snippet?.thumbnails?.default?.url || "",
+        });
+      }
     }
     pageToken = data.nextPageToken;
   } while (pageToken);
@@ -86,13 +101,23 @@ async function writeEncrypted(user: string, payload: EncryptedPayload) {
   await fs.writeFile(p, JSON.stringify(payload));
 }
 
+async function writePlainText(user: string, text: string) {
+  const p = path.resolve(process.cwd(), `./src/stores/secrets/raw/${user}.json`);
+  await fs.mkdir(path.dirname(p), { recursive: true });
+  await fs.writeFile(p, text);
+}
+
 function bytesToUtf8(b: Uint8Array) { return new TextDecoder().decode(b); }
 function utf8ToBytes(s: string) { return new TextEncoder().encode(s); }
 
-function normalizeIds(ids: string[]): string[] {
-  const uniq = Array.from(new Set(ids));
-  uniq.sort();
-  return uniq;
+function normalizeVideos(videos: Video[]): Video[] {
+  const byID = new Map<string, Video>();
+  for (const v of videos) {
+    byID.set(v.id, v);
+  }
+  const arr = Array.from(byID.values());
+  arr.sort((a, b) => a.id.localeCompare(b.id));
+  return arr;
 }
 
 export async function updateVideoIds(user: string): Promise<"unchanged" | "updated"> {
@@ -109,19 +134,21 @@ export async function updateVideoIds(user: string): Promise<"unchanged" | "updat
   if (!current.playlist_id) throw new Error("Plain data missing playlist_id");
 
   // 2) fetch latest from YT
-  const latestIds = await fetchPlaylistVideoIds(current.playlist_id);
-  console.log(`[update-videos] ${user}: fetched ${latestIds.length} videos from playlist ${current.playlist_id}`);
+  const latestVideos = await fetchPlaylistVideos(current.playlist_id);
+  console.log(`[update-videos] ${user}: fetched ${latestVideos.length} videos from playlist ${current.playlist_id}`);
 
   // 3) compare
-  const prev = normalizeIds(current.video_ids || []);
-  const next = normalizeIds(latestIds);
+  const prev = normalizeVideos(current.videos || []);
+  const next = normalizeVideos(latestVideos);
 
   const changed = prev.length !== next.length || prev.some((v, i) => v !== next[i]);
+  // 4) write back (re-encrypt)
+  const updated: PlainData = { ...current, videos: next };
+  const payload = encryptPBKDF2(utf8ToBytes(JSON.stringify(updated)));
+  await writePlainText(user, JSON.stringify(updated));
+
   if (!changed) return "unchanged";
 
-  // 4) write back (re-encrypt)
-  const updated: PlainData = { ...current, video_ids: next };
-  const payload = encryptPBKDF2(utf8ToBytes(JSON.stringify(updated)));
   await writeEncrypted(user, payload);
   return "updated";
 }
