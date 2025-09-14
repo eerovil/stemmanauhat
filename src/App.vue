@@ -189,6 +189,19 @@ watch(selectedVideo, async (newVideo, oldVideo) => {
   }
 });
 
+if (user) {
+  // Set favicon to user.ico
+  const link: HTMLLinkElement | null = document.querySelector("link[rel~='icon']");
+  if (link) {
+    link.href = `${user}.ico`;
+  } else {
+    const newLink = document.createElement('link');
+    newLink.rel = 'icon';
+    newLink.href = `${user}.ico`;
+    document.getElementsByTagName('head')[0].appendChild(newLink);
+  }
+}
+
 </script>
 
 <template>
