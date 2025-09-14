@@ -12,13 +12,12 @@ let prevVideoBasename: string | null = null;
 const secretstore = useSecretStore();
 const videostore = useVideoStore();
 
-// Parse path
-const route = window.location.pathname;
-
 const decryptedData = ref<string | null>(null);
 
-const user = route.split('/').filter(Boolean)[0] || 'default';
-const passphraseFromPath = route.split('/').filter(Boolean)[1] || '';
+// Parse query parameters
+const urlParams = new URLSearchParams(window.location.search);
+const user = urlParams.get('user') || 'default';
+const passphraseFromPath = urlParams.get('passphrase') || '';
 
 if (passphraseFromPath) {
   secretstore.setPassphrase(passphraseFromPath);
