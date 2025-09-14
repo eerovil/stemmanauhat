@@ -86,7 +86,7 @@ const onPlayerError = (event: any) => {
   console.error('YouTube Player Error:', errorMsg);
 }
 function detectMobile() {
-  const ua = navigator.userAgent || navigator.vendor || window.opera;
+  const ua = navigator.userAgent || navigator.vendor;
   const isSmallScreen = window.matchMedia("(max-width: 768px)").matches;
   return /android|iphone|ipod|blackberry|iemobile|opera mini/i.test(ua) || isSmallScreen;
 }
