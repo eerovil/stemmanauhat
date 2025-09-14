@@ -9,6 +9,9 @@ export const useSecretStore = defineStore('secret', () => {
   function setPassphrase(p: string) {
     passphrase.value = p;
   }
+  function getPassphrase() {
+    return passphrase.value;
+  }
 
   async function decryptData(fileName: string) {
     if (!passphrase.value) {
@@ -35,5 +38,5 @@ export const useSecretStore = defineStore('secret', () => {
     return decrypted;
   }
 
-  return { decryptData, setPassphrase }
+  return { decryptData, setPassphrase, getPassphrase }
 })
