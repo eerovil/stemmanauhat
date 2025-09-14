@@ -134,6 +134,8 @@ export default function EncryptSecrets(options: EncryptSecretsOptions = {}): Plu
   }
 
   function shouldIgnore(absPath: string): boolean {
+    // Ignore all paths which don't include rawDir
+    if (!absPath.includes(RAW_DIR)) return true;
     const p = path.resolve(absPath) + (absPath.endsWith(path.sep) ? "" : "");
     return ignorePrefixes.some((pref) => p.startsWith(pref));
   }
@@ -142,14 +144,6 @@ export default function EncryptSecrets(options: EncryptSecretsOptions = {}): Plu
   return {
     name: "encrypt-secrets",
     enforce: "pre",
-
-    // Build: one full pass before bundling
-    async buildStart() {
-      await fullEncrypt({
-        info: (m: unknown) => this.warn(String(m)),
-        error: (m: unknown) => this.error(String(m)),
-      });
-    },
 
     // Dev: initial pass + re-encrypt all on any change (debounced)
     configureServer(server: ViteDevServer) {
@@ -160,10 +154,6 @@ export default function EncryptSecrets(options: EncryptSecretsOptions = {}): Plu
         server.config.logger.warn(msg);
         return;
       }
-
-      fullEncrypt(server.config.logger).catch((e) =>
-        server.config.logger.error(`[encrypt-secrets] initial: ${e?.message || e}`)
-      );
 
       const onAny = debounce((...args: unknown[]) => {
         const absPath = args[1] as string | undefined;
