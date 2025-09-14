@@ -19,7 +19,7 @@ export const useVideoStore = defineStore('video', () => {
   function setVideos(v: Video[]) {
     videos.value = v.map(vid => {
       const partMatch = vid.title.match(partnameRegex);
-      const part = partMatch ? partMatch[0] : "UNKNOWN";
+      const part = (partMatch ? partMatch[0] : "UNKNOWN").replace('ALL', 'Kaikki');
       const basename = vid.title.replace(partnameRegex, "").trim();
       return { ...vid, part, basename };
     });
@@ -38,7 +38,7 @@ export const useVideoStore = defineStore('video', () => {
         // We will split this video into 5 parts of equal length
         // ALL, T1, T2, B1, B2
         // This is a naive split, in real scenarios you might want to use video duration
-        const parts = ["ALL", "T1", "T2", "B1", "B2"];
+        const parts = ["Kaikki", "T1", "T2", "B1", "B2"];
         for (const index in parts) {
           const p = parts[index];
           ret[base].push({ ...v, part: p, seek: parseInt(index) });
@@ -48,6 +48,32 @@ export const useVideoStore = defineStore('video', () => {
         ret[base].push(v);
       }
     }
+    // Sort each array by part names as follows:
+    // ALL/Kaikki first, then S, then A, then W, then T, then B, then M
+    for (const key in ret) {
+      ret[key].sort((a, b) => {
+        const order = (part: string) => {
+          if (part === "ALL" || part === "Kaikki") return 0;
+          if (part.startsWith("S")) return 1;
+          if (part.startsWith("A")) return 2;
+          if (part.startsWith("W")) return 3;
+          if (part.startsWith("T")) return 4;
+          if (part.startsWith("B")) return 5;
+          if (part.startsWith("M")) return 6;
+          return 99; // Unknown parts go last
+        };
+        const orderA = order(a.part);
+        const orderB = order(b.part);
+        if (orderA !== orderB) {
+          return orderA - orderB;
+        }
+        // If same category, sort by part number if applicable
+        const numA = parseInt(a.part.replace(/\D/g, '')) || 0;
+        const numB = parseInt(b.part.replace(/\D/g, '')) || 0;
+        return numA - numB;
+      });
+    }
+
     return ret;
   });
 

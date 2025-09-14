@@ -89,16 +89,48 @@ const onPlayerError = (event: any) => {
   console.error('YouTube Player Error:', errorMsg);
 }
 
+let videoHeight = 320;
+const fullScreen = ref(false);
+const handleOrientation = async () => {
+  // Wait 10 ms to allow orientation change to complete
+  await new Promise(resolve => setTimeout(resolve, 10));
+  // Initialize video height based on 16:9 aspect ratio
+  videoHeight = window.innerWidth * (12 / 16);
+  if (window.screen.orientation.type.startsWith('landscape')) {
+    console.log('Landscape orientation');
+    fullScreen.value = true;
+    if (videoHeight > window.innerHeight) {
+      videoHeight = window.innerHeight;
+    }
+  } else {
+    fullScreen.value = false;
+    const maxHeight = window.innerHeight * 0.7;
+    if (videoHeight > maxHeight) {
+      videoHeight = maxHeight;
+    }
+  }
+  console.log('Orientation changed, video height set to:', videoHeight);
+  // Set player height if player exists
+  if (player) {
+    player.setSize(window.innerWidth, videoHeight);
+  } else {
+    console.log('Player not initialized yet');
+  }
+};
+handleOrientation();
+window.screen.orientation.onchange = handleOrientation;
+
 watchEffect(async () => {
   if (selectedVideo.value) {
     if (!player) {
       // wait 1ms
       await new Promise(resolve => setTimeout(resolve, 1));
       console.log('Creating new player for video ID:', selectedVideo.value.id);
+      console.log("videoHeight:", videoHeight);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       player = new ((window as Window).YT as any).Player('yt-frame', {
-        height: '300',
-        width: '500',
+        height: videoHeight.toString(),
+        width: window.innerWidth.toString(),
         playerVars: {
           controls: 1,
           disablekb: 1,
@@ -140,17 +172,24 @@ watchEffect(async () => {
   </div>
   <div v-else>
     <div v-if="selectedVideo" class="player">
-      <h2>Now Playing: {{ selectedVideo.title }}</h2>
+      <span v-if="!fullScreen">{{ selectedVideo.title }}</span>
       <div id="yt-wrapper">
         <div id="yt-frame"></div>
       </div>
     </div>
     <div v-if="selectedVideo" class="player-margin"></div>
-    <div v-for="(videos, basename) in videostore.sortedVideosByBasename" :key="basename" style="margin-bottom: 20px;">
+    <div v-for="(videos, basename) in videostore.sortedVideosByBasename" :key="basename" class="video-group">
       <h3>{{ basename }}</h3>
-      <p>Published at: {{ timeString(videos[0].publishedAt) }}</p>
-      <div v-for="video in videos" :key="video.id" style="margin-left: 20px; margin-bottom: 10px;">
-        <button @click="selectedVideo = video">Part: {{ video.part }}</button>
+      <span>{{ timeString(videos[0].publishedAt) }}</span>
+      <div class="video-button-wrapper">
+        <div v-if="videos.find(v => v.part === 'Kaikki')" class="video-button video-button-all">
+          <button @click="selectedVideo = (videos.find(v => v.part === 'Kaikki') as ExtendedVideo)">Kaikki</button>
+        </div>
+        <div class="other-videos">
+          <div v-for="video in videos.filter(v => v.part !== 'Kaikki')" :key="video.id" class="video-button">
+            <button @click="selectedVideo = video">{{ video.part }}</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -161,10 +200,54 @@ watchEffect(async () => {
   position: fixed;
   top: 0px;
   left: 0px;
+  background-color: black;
+  color: white;
+  width: 100%;
+  height: 320px;
+
+  text-align: center;
+  padding: 0.5rem 0 0 0;
+}
+
+.player>span {
+  display: block;
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
 }
 
 .player-margin {
   height: 320px;
   /* Height of the player + some margin */
+}
+
+.video-group>h3 {
+  margin: 0;
+}
+
+.video-button-wrapper {
+  display: flex;
+}
+
+.other-videos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  width: 100%;
+}
+
+.video-button {
+  flex: 1;
+}
+
+.video-button button {
+  width: 100%;
+  height: 3rem;
+  font-size: 1rem;
+}
+
+.video-button-all {
+  flex: 1 1 50%;
+  margin-right: 0.5rem;
 }
 </style>
