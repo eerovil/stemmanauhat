@@ -14,7 +14,7 @@ export const useVideoStore = defineStore('video', () => {
 
   // Either S1, T1, A1, B1, etc.
   // or "ALL"
-  const partnameRegex: RegExp = /((A|B|T)\d|ALL|Kaikki|Solo)$/;
+  const partnameRegex: RegExp = /((A|B|T|S)\d(-\d)?|ALL|Kaikki|Solo)$/;
 
   function setVideos(v: Video[]) {
     videos.value = v.map(vid => {

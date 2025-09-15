@@ -21,7 +21,7 @@ jobs:
         env:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           JM_PASSPHRASE: ${{ secrets.JM_PASSPHRASE }}
-        run: pnpm run update:videos jm
+        run: pnpm run update:videos jm naiskuoro public
       - name: Commit and push changes if any
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
