@@ -6,9 +6,6 @@ import { useVideoStore } from './stores/videostore';
 import { computed } from 'vue';
 import type { ExtendedVideo } from './stores/videostore';
 
-let prevVideoPos = 0;
-let prevVideoBasename: string | null = null;
-
 const secretstore = useSecretStore();
 const videostore = useVideoStore();
 
@@ -127,11 +124,7 @@ const handleOrientation = async () => {
 handleOrientation();
 window.screen.orientation.onchange = handleOrientation;
 
-watch(selectedVideo, async (newVideo, oldVideo) => {
-  console.log('Selected video changed:', newVideo, oldVideo);
-  const oldVideoBasename = oldVideo ? oldVideo.basename : null;
-  prevVideoBasename = oldVideoBasename;
-  console.log('oldVideoBasename:', oldVideoBasename);
+watch(selectedVideo, async (newVideo) => {
   if (newVideo) {
     if (!player) {
       // wait 1ms
@@ -163,27 +156,15 @@ watch(selectedVideo, async (newVideo, oldVideo) => {
                 return;
               }
               console.log('Video buffering');
-              let seekTo = 0;
-              if (prevVideoBasename === selectedVideo.value?.basename) {
-                seekTo = prevVideoPos;
-              } else {
-                console.log("not match", prevVideoBasename, selectedVideo.value?.basename);
-              }
-              prevVideoPos = 0;
               if (selectedVideo.value?.seek !== undefined) {
                 const fifth = player.getDuration() / 5;
-                seekTo = seekTo % fifth;
-                player.seekTo(seekTo + (fifth * selectedVideo.value.seek), true);
-              } else {
-                player.seekTo(seekTo, true);
+                player.seekTo((fifth * selectedVideo.value.seek), true);
               }
             }
           },
         }
       });
     } else {
-      prevVideoPos = player.getCurrentTime();
-      console.log('prevVideoPos:', prevVideoPos);
       player.loadVideoById(newVideo.id);
     }
     console.log('Player created', player);
