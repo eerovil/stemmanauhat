@@ -113,10 +113,10 @@ const handleOrientation = async () => {
       videoHeight.value = maxHeight;
     }
   }
-  console.log('Orientation changed, video height set to:', videoHeight);
+  console.log('Orientation changed, video height set to:', videoHeight.value);
   // Set player height if player exists
   if (player) {
-    player.setSize(window.innerWidth, videoHeight);
+    player.setSize(window.innerWidth, videoHeight.value);
   } else {
     console.log('Player not initialized yet');
   }
@@ -129,8 +129,6 @@ watch(selectedVideo, async (newVideo) => {
     if (!player) {
       // wait 1ms
       await new Promise(resolve => setTimeout(resolve, 1));
-      console.log('Creating new player for video ID:', newVideo.id);
-      console.log("videoHeight:", videoHeight);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       player = new ((window as Window).YT as any).Player('yt-frame', {
         height: videoHeight.value.toString(),
