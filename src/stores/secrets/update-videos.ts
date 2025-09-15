@@ -48,7 +48,6 @@ async function fetchPlaylistVideos(playlistId: string): Promise<Video[]> {
     if (!res.ok) throw new Error(`YouTube HTTP ${res.status}`);
     const data = await res.json();
     for (const item of data.items || []) {
-      console.log(item);
       const vid = item?.contentDetails?.videoId;
       if (vid) {
         all.push({
