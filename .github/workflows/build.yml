@@ -1,8 +1,10 @@
-name: pnpm Example Workflow
+name: Build and deploy to GitHub Pages
 on:
   push:
     branches:
       - main
+  repository_dispatch:
+    types: [trigger-pages]
 
 permissions:
   contents: read
