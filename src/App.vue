@@ -87,13 +87,13 @@ function detectMobile() {
   const isSmallScreen = window.matchMedia("(max-width: 768px)").matches;
   return /android|iphone|ipod|blackberry|iemobile|opera mini/i.test(ua) || isSmallScreen;
 }
-let videoHeight = 320;
+const videoHeight = ref(320);
 const fullScreen = ref(false);
 const handleOrientation = async () => {
   // Wait 500 ms to allow orientation change to complete
   await new Promise(resolve => setTimeout(resolve, 500));
   // Initialize video height based on 16:9 aspect ratio
-  videoHeight = window.innerWidth * (12 / 16);
+  videoHeight.value = window.innerWidth * (12 / 16);
   let landscape = window.screen.orientation.type.startsWith('landscape');
   const isMobile = detectMobile();
   if (!isMobile) {
@@ -103,14 +103,14 @@ const handleOrientation = async () => {
   if (landscape) {
     console.log('Landscape orientation');
     fullScreen.value = true;
-    if (videoHeight > window.innerHeight) {
-      videoHeight = window.innerHeight;
+    if (videoHeight.value > window.innerHeight) {
+      videoHeight.value = window.innerHeight;
     }
   } else {
     fullScreen.value = false;
     const maxHeight = window.innerHeight * 0.7;
-    if (videoHeight > maxHeight) {
-      videoHeight = maxHeight;
+    if (videoHeight.value > maxHeight) {
+      videoHeight.value = maxHeight;
     }
   }
   console.log('Orientation changed, video height set to:', videoHeight);
@@ -133,7 +133,7 @@ watch(selectedVideo, async (newVideo) => {
       console.log("videoHeight:", videoHeight);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       player = new ((window as Window).YT as any).Player('yt-frame', {
-        height: videoHeight.toString(),
+        height: videoHeight.value.toString(),
         width: window.innerWidth.toString(),
         playerVars: {
           controls: 1,
@@ -197,7 +197,7 @@ if (user) {
         <div id="yt-frame"></div>
       </div>
     </div>
-    <div v-if="selectedVideo" class="player-margin"></div>
+    <div v-if="selectedVideo" class="player-margin" :style="`margin-top: ${videoHeight}px`"></div>
     <div v-for="(videos, basename) in videostore.sortedVideosByBasename" :key="basename" class="video-group">
       <h3>{{ basename }}</h3>
       <span>{{ timeString(videos[0].publishedAt) }}</span>
@@ -241,8 +241,7 @@ body {
 }
 
 .player-margin {
-  height: 400px;
-  /* Height of the player + some margin */
+  height: 100px;
 }
 
 .video-group>h3 {
