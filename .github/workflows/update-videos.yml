@@ -15,3 +15,13 @@ jobs:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           JM_PASSPHRASE: ${{ secrets.JM_PASSPHRASE }}
         run: pnpm run update:videos jm
+      - name: Commit and push changes if any
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -n "$(git status --porcelain)" ]; then
+            git add .
+            git commit -m "chore: update videos [auto-commit]"
+            git push
+          else
+            echo "No changes to commit."
