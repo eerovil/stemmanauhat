@@ -1,5 +1,5 @@
 # stemmanauhat
 
-Custom fork of secret-webpage
+Custom fork of [secret-webpage](https://github.com/Eerovil/secret-webpage)
 
-https://eero.vilpponen.fi/stemmanauhat/?user=public&passphrase=public
+[Demo (public videos)](https://eero.vilpponen.fi/stemmanauhat/?user=public&passphrase=public)
