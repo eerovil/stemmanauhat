@@ -169,6 +169,7 @@ watch(selectedVideo, async (newVideo, oldVideo) => {
               } else {
                 console.log("not match", prevVideoBasename, selectedVideo.value?.basename);
               }
+              prevVideoPos = 0;
               if (selectedVideo.value?.seek !== undefined) {
                 const fifth = player.getDuration() / 5;
                 seekTo = seekTo % fifth;
