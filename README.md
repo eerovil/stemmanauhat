@@ -1,7 +1,4 @@
-# secret-webpage
+# stemmanauhat
 
-Add encrypted data easily to client only webpage.
+Custom fork of secret-webpage
 
-In the example, passphrase is "test"
-
-https://eero.vilpponen.fi/secret-webpage/
