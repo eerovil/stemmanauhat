@@ -140,7 +140,7 @@ export async function updateVideoIds(user: string): Promise<"unchanged" | "updat
   const prev = normalizeVideos(current.videos || []);
   const next = normalizeVideos(latestVideos);
 
-  const changed = prev.length !== next.length || prev.some((v, i) => v !== next[i]);
+  const changed = prev.length !== next.length || prev.some((v, i) => v.id !== next[i].id);
   // 4) write back (re-encrypt)
   const updated: PlainData = { ...current, videos: next };
   const payload = encryptPBKDF2(utf8ToBytes(JSON.stringify(updated)));
@@ -172,5 +172,9 @@ if (users.length === 0) {
     if (res === "updated") anyUpdated = true;
   }
   // Exit code 0 either way; workflow will check git diff to decide commit.
-  if (anyUpdated) console.log("[update-videos] Some users updated.");
+  if (anyUpdated) {
+    console.log("[update-videos] Some users updated.");
+  } else {
+    throw new Error("No changes detected");
+  }
 })();

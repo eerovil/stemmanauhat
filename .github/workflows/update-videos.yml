@@ -2,6 +2,7 @@
 
 name: Update Videos
 on:
+  workflow_dispatch:
   schedule:
     - cron: '*/10 * * * *'
 
