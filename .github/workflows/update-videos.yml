@@ -1,6 +1,10 @@
+
 name: Update Videos
 on:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   update-videos:
@@ -16,13 +20,15 @@ jobs:
           JM_PASSPHRASE: ${{ secrets.JM_PASSPHRASE }}
         run: pnpm run update:videos jm
       - name: Commit and push changes if any
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           if [ -n "$(git status --porcelain)" ]; then
             git add .
             git commit -m "chore: update videos [auto-commit]"
-            git push
+            git push https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }} HEAD:${{ github.ref }}
           else
             echo "No changes to commit."
           fi
