@@ -22,7 +22,7 @@ jobs:
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
           JM_PASSPHRASE: ${{ secrets.JM_PASSPHRASE }}
           NAISKUORO_PASSPHRASE: ${{ secrets.NAISKUORO_PASSPHRASE }}
-          PUBLIC_PASSPHRASE: ${{ secrets.NAISKUORO_PASSPHRASE }}
+          PUBLIC_PASSPHRASE: ${{ secrets.PUBLIC_PASSPHRASE }}
         run: pnpm run update:videos jm naiskuoro public
       - name: Commit and push changes if any
         env:
