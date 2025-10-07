@@ -259,8 +259,8 @@ body {
 }
 
 .other-videos {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
   gap: 0.5rem;
   margin-bottom: 1rem;
   width: 100%;
