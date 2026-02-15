@@ -59,13 +59,13 @@ function saveLastPractised(video: ExtendedVideo) {
   try {
     const payload = { basename: video.basename, part: video.part };
     localStorage.setItem(storageKey('last'), JSON.stringify(payload));
-    lastPractisedSnapshot.value = payload;
   } catch {
     /* ignore */
   }
 }
 
-const lastPractisedSnapshot = ref<{ basename: string; part: string } | null>(null);
+/** Snapshot of "last" at page load – used only for the "Jatka siitä" button so it doesn’t change during the session. */
+const initialLastPractised = ref<{ basename: string; part: string } | null>(null);
 
 function loadLastPractisedSnapshot() {
   try {
@@ -73,7 +73,7 @@ function loadLastPractisedSnapshot() {
     if (!raw) return;
     const obj = JSON.parse(raw) as { basename?: string; part?: string };
     if (obj.basename && obj.part) {
-      lastPractisedSnapshot.value = { basename: obj.basename, part: obj.part };
+      initialLastPractised.value = { basename: obj.basename, part: obj.part };
     }
   } catch {
     /* ignore */
@@ -105,20 +105,22 @@ function findVideoForPart(
   return video;
 }
 
-function restoreLastPractised() {
+function restoreLastPractised(snapshot?: { basename: string; part: string } | null) {
   try {
-    const raw = localStorage.getItem(storageKey('last'));
-    if (!raw) return;
-    const { basename, part } = JSON.parse(raw) as { basename?: string; part?: string };
-    if (!basename || !part) return;
-    const group = videostore.videosByBasename[basename];
+    const data = snapshot ?? (() => {
+      const raw = localStorage.getItem(storageKey('last'));
+      if (!raw) return null;
+      return JSON.parse(raw) as { basename: string; part: string };
+    })();
+    if (!data?.basename || !data.part) return;
+    const group = videostore.videosByBasename[data.basename];
     if (!group) return;
-    const video = findVideoForPart(group, part);
+    const video = findVideoForPart(group, data.part);
     if (!video) return;
-    preferredVoice.value = part;
-    expandedBasename.value = basename;
+    preferredVoice.value = data.part;
+    expandedBasename.value = data.basename;
     selectedVideo.value = video;
-    nextTick(() => scrollExpandedIntoView(basename));
+    nextTick(() => scrollExpandedIntoView(data.basename));
   } catch {
     /* ignore */
   }
@@ -152,7 +154,10 @@ const toggleGroup = (basename: string) => {
     const video =
       (preferredVoice.value && findVideoForPart(group, preferredVoice.value)) ??
       group.find((v) => v.part === 'Kaikki');
-    if (video) selectedVideo.value = video;
+    if (video) {
+      selectedVideo.value = video;
+      saveLastPractised(video);
+    }
   }
   nextTick(() => scrollExpandedIntoView(basename));
 };
@@ -363,13 +368,13 @@ if (user) {
       <span class="search-count">{{ filteredCount }} / {{ totalCount }} laulua</span>
     </div>
     <button
-      v-if="lastPractisedSnapshot"
+      v-if="initialLastPractised"
       type="button"
       class="continue-button"
-      @click="restoreLastPractised()"
+      @click="restoreLastPractised(initialLastPractised)"
     >
       Jatka siitä mihin jäit
-      <span class="continue-song">{{ lastPractisedSnapshot.basename }} ({{ lastPractisedSnapshot.part }})</span>
+      <span class="continue-song">{{ initialLastPractised.basename }} ({{ initialLastPractised.part }})</span>
     </button>
     <div
       v-for="(videos, basename) in filteredVideosByBasename"
