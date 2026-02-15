@@ -57,10 +57,9 @@ const preferredVoice = ref<string | null>(getPreferredVoiceFromLast());
 
 function saveLastPractised(video: ExtendedVideo) {
   try {
-    localStorage.setItem(
-      storageKey('last'),
-      JSON.stringify({ basename: video.basename, part: video.part })
-    );
+    const payload = { basename: video.basename, part: video.part };
+    localStorage.setItem(storageKey('last'), JSON.stringify(payload));
+    lastPractisedSnapshot.value = payload;
   } catch {
     /* ignore */
   }
@@ -81,6 +80,31 @@ function loadLastPractisedSnapshot() {
   }
 }
 
+/** If part is like S1-1, return S1; else return part. Used to fall back when a song has no S1-1. */
+function basePart(part: string): string {
+  const base = part.replace(/-\d+$/, '');
+  return base !== part ? base : part;
+}
+
+/** True if this part should show the "my part" highlight (exact match or base match, e.g. S1 when preferred is S1-1). */
+function isMyPart(preferred: string | null, part: string): boolean {
+  if (!preferred) return false;
+  return preferred === part || basePart(preferred) === part;
+}
+
+/** Find video by exact part, or by base part (e.g. S1 when stored part is S1-1). Store is never changed. */
+function findVideoForPart(
+  group: ExtendedVideo[],
+  part: string
+): ExtendedVideo | undefined {
+  let video = group.find((v) => v.part === part);
+  if (!video) {
+    const fallback = basePart(part);
+    if (fallback !== part) video = group.find((v) => v.part === fallback);
+  }
+  return video;
+}
+
 function restoreLastPractised() {
   try {
     const raw = localStorage.getItem(storageKey('last'));
@@ -89,7 +113,7 @@ function restoreLastPractised() {
     if (!basename || !part) return;
     const group = videostore.videosByBasename[basename];
     if (!group) return;
-    const video = group.find((v) => v.part === part);
+    const video = findVideoForPart(group, part);
     if (!video) return;
     preferredVoice.value = part;
     expandedBasename.value = basename;
@@ -125,7 +149,7 @@ const toggleGroup = (basename: string) => {
   expandedBasename.value = basename;
   const group = videostore.videosByBasename[basename];
   if (group && preferredVoice.value) {
-    const video = group.find((v) => v.part === preferredVoice.value);
+    const video = findVideoForPart(group, preferredVoice.value);
     if (video) selectedVideo.value = video;
   }
   nextTick(() => scrollExpandedIntoView(basename));
@@ -137,7 +161,7 @@ function scrollExpandedIntoView(basename: string) {
   const wrapper = group.querySelector('.video-button-wrapper');
   if (!wrapper) return;
   const rect = wrapper.getBoundingClientRect();
-  const videoTop = selectedVideo.value ? videoHeight.value : 0;
+  const videoTop = selectedVideo.value ? playerTotalHeight.value : 0;
   const padding = 8;
   let scrollY = 0;
   if (rect.top < videoTop + padding) {
@@ -204,6 +228,9 @@ function detectMobile() {
   return /android|iphone|ipod|blackberry|iemobile|opera mini/i.test(ua) || isSmallScreen;
 }
 const videoHeight = ref(320);
+/** Height of the title row inside .player (padding + span + margin) so spacer matches exactly */
+const PLAYER_HEADER_PX = 40;
+const playerTotalHeight = computed(() => videoHeight.value + PLAYER_HEADER_PX);
 const fullScreen = ref(false);
 const handleOrientation = async () => {
   // Wait 500 ms to allow orientation change to complete
@@ -305,16 +332,24 @@ if (user) {
     <p>No decrypted data available. Please provide a valid passphrase in the URL.</p>
   </div>
   <div v-else>
-    <div v-if="selectedVideo" class="player">
+    <div
+      v-if="selectedVideo"
+      class="player"
+      :style="{ height: `${playerTotalHeight}px` }"
+    >
       <span v-if="!fullScreen">{{ selectedVideo.title }}</span>
-      <div id="yt-wrapper">
+      <div id="yt-wrapper" class="player-yt-wrapper" :style="{ height: `${videoHeight}px` }">
         <div id="yt-frame"></div>
       </div>
     </div>
-    <div v-if="selectedVideo" class="player-margin" :style="`margin-top: ${videoHeight}px`"></div>
+    <div
+      v-if="selectedVideo"
+      class="player-margin"
+      :style="{ height: `${playerTotalHeight}px` }"
+    ></div>
     <div
       class="search-bar"
-      :style="selectedVideo ? { top: `${videoHeight}px` } : {}"
+      :style="selectedVideo ? { top: `${playerTotalHeight}px` } : {}"
     >
       <input
         v-model="searchQuery"
@@ -353,7 +388,7 @@ if (user) {
         <div v-if="videos.find(v => v.part === 'Kaikki')" class="video-button video-button-all">
           <button
             @click="selectVideo(videos.find(v => v.part === 'Kaikki') as ExtendedVideo)"
-            :class="{ 'my-part': preferredVoice === 'Kaikki' }"
+            :class="{ 'my-part': isMyPart(preferredVoice, 'Kaikki') }"
           >
             Kaikki
           </button>
@@ -362,7 +397,7 @@ if (user) {
           <div v-for="video in videos.filter(v => v.part !== 'Kaikki')" :key="video.id" class="video-button">
             <button
               @click="selectVideo(video)"
-              :class="{ 'my-part': preferredVoice === video.part }"
+              :class="{ 'my-part': isMyPart(preferredVoice, video.part) }"
             >
               {{ video.part }}
             </button>
@@ -382,25 +417,35 @@ body {
 <style scoped>
 .player {
   position: fixed;
-  top: 0px;
-  left: 0px;
+  top: 0;
+  left: 0;
   z-index: 20;
+  display: flex;
+  flex-direction: column;
   background-color: black;
   color: white;
   width: 100%;
-  height: 320px;
+  /* height set inline: videoHeight + title row (PLAYER_HEADER_PX) */
   text-align: center;
   padding: 0.5rem 0 0 0;
+  box-sizing: border-box;
 }
 
 .player>span {
   display: block;
   font-size: 1rem;
   margin-bottom: 0.5rem;
+  flex-shrink: 0;
+}
+
+.player-yt-wrapper {
+  flex-shrink: 0;
+  min-height: 0;
 }
 
 .player-margin {
-  height: 100px;
+  /* height set inline from videoHeight so layout matches fixed player exactly */
+  flex-shrink: 0;
 }
 
 .search-bar {
