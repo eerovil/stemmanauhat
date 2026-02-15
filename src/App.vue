@@ -148,8 +148,10 @@ const toggleGroup = (basename: string) => {
   if (expandedBasename.value === basename) return;
   expandedBasename.value = basename;
   const group = videostore.videosByBasename[basename];
-  if (group && preferredVoice.value) {
-    const video = findVideoForPart(group, preferredVoice.value);
+  if (group) {
+    const video =
+      (preferredVoice.value && findVideoForPart(group, preferredVoice.value)) ??
+      group.find((v) => v.part === 'Kaikki');
     if (video) selectedVideo.value = video;
   }
   nextTick(() => scrollExpandedIntoView(basename));
