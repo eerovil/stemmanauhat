@@ -14,6 +14,8 @@ const urlParams = new URLSearchParams(window.location.search);
 const user = urlParams.get('user') || 'default';
 const passphraseFromPath = urlParams.get('passphrase') || '';
 
+const storageKey = (suffix: string) => `secret-webpage-${user}-${suffix}`;
+
 if (passphraseFromPath) {
   secretstore.setPassphrase(passphraseFromPath);
   secretstore.decryptData(`${user}.json`).then((decrypted) => {
@@ -21,6 +23,7 @@ if (passphraseFromPath) {
     const dataObj = JSON.parse(decryptedData.value);
     if (dataObj.videos) {
       videostore.setVideos(dataObj.videos);
+      loadLastPractisedSnapshot();
     } else {
       console.warn('No videos found in decrypted data');
     }
@@ -40,6 +43,69 @@ const selectedVideo = ref<ExtendedVideo | null>(null);
 const searchQuery = ref('');
 const expandedBasename = ref<string | null>(null);
 
+function getPreferredVoiceFromLast(): string | null {
+  try {
+    const raw = localStorage.getItem(storageKey('last'));
+    if (!raw) return null;
+    const { part } = JSON.parse(raw) as { part?: string };
+    return part ?? null;
+  } catch {
+    return null;
+  }
+}
+const preferredVoice = ref<string | null>(getPreferredVoiceFromLast());
+
+function saveLastPractised(video: ExtendedVideo) {
+  try {
+    localStorage.setItem(
+      storageKey('last'),
+      JSON.stringify({ basename: video.basename, part: video.part })
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+const lastPractisedSnapshot = ref<{ basename: string; part: string } | null>(null);
+
+function loadLastPractisedSnapshot() {
+  try {
+    const raw = localStorage.getItem(storageKey('last'));
+    if (!raw) return;
+    const obj = JSON.parse(raw) as { basename?: string; part?: string };
+    if (obj.basename && obj.part) {
+      lastPractisedSnapshot.value = { basename: obj.basename, part: obj.part };
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function restoreLastPractised() {
+  try {
+    const raw = localStorage.getItem(storageKey('last'));
+    if (!raw) return;
+    const { basename, part } = JSON.parse(raw) as { basename?: string; part?: string };
+    if (!basename || !part) return;
+    const group = videostore.videosByBasename[basename];
+    if (!group) return;
+    const video = group.find((v) => v.part === part);
+    if (!video) return;
+    preferredVoice.value = part;
+    expandedBasename.value = basename;
+    selectedVideo.value = video;
+    nextTick(() => scrollExpandedIntoView(basename));
+  } catch {
+    /* ignore */
+  }
+}
+
+function selectVideo(video: ExtendedVideo) {
+  preferredVoice.value = video.part;
+  selectedVideo.value = video;
+  saveLastPractised(video);
+}
+
 const filteredVideosByBasename = computed(() => {
   const all = videostore.sortedVideosByBasename;
   const q = searchQuery.value.trim().toLowerCase();
@@ -57,6 +123,11 @@ const filteredCount = computed(() => Object.keys(filteredVideosByBasename.value)
 const toggleGroup = (basename: string) => {
   if (expandedBasename.value === basename) return;
   expandedBasename.value = basename;
+  const group = videostore.videosByBasename[basename];
+  if (group && preferredVoice.value) {
+    const video = group.find((v) => v.part === preferredVoice.value);
+    if (video) selectedVideo.value = video;
+  }
   nextTick(() => scrollExpandedIntoView(basename));
 };
 
@@ -189,7 +260,7 @@ watch(selectedVideo, async (newVideo) => {
           showinfo: 0,
           playsinline: 1,
         },
-        videoId: newVideo.id,
+        videoId: String(newVideo.id),
         events: {
           'onReady': onPlayerReady,
           'onError': onPlayerError,
@@ -208,7 +279,7 @@ watch(selectedVideo, async (newVideo) => {
         }
       });
     } else {
-      player.loadVideoById(newVideo.id);
+      player.loadVideoById(String(newVideo.id));
     }
     console.log('Player created', player);
   }
@@ -254,28 +325,47 @@ if (user) {
       />
       <span class="search-count">{{ filteredCount }} / {{ totalCount }} laulua</span>
     </div>
+    <button
+      v-if="lastPractisedSnapshot"
+      type="button"
+      class="continue-button"
+      @click="restoreLastPractised()"
+    >
+      Jatka siitä mihin jäit
+      <span class="continue-song">{{ lastPractisedSnapshot.basename }} ({{ lastPractisedSnapshot.part }})</span>
+    </button>
     <div
       v-for="(videos, basename) in filteredVideosByBasename"
       :key="basename"
       class="video-group"
       :data-basename="basename"
     >
-      <header class="video-group-header" @click="toggleGroup(basename)">
+      <header class="video-group-header" @click="toggleGroup(String(basename))">
         <span class="expand-icon" :class="{ collapsed: expandedBasename !== basename }">▸</span>
         <h3>{{ basename }}</h3>
         <span
-          v-if="videostore.newestBasenames.has(basename) || isWithinLastWeek(videos[0].publishedAt)"
+          v-if="videostore.newestBasenames.has(String(basename)) || isWithinLastWeek(videos[0].publishedAt)"
           class="new-badge"
         >Uusi</span>
         <span class="video-group-date">{{ timeString(videos[0].publishedAt) }}</span>
       </header>
       <div v-show="expandedBasename === basename" class="video-button-wrapper">
         <div v-if="videos.find(v => v.part === 'Kaikki')" class="video-button video-button-all">
-          <button @click="selectedVideo = (videos.find(v => v.part === 'Kaikki') as ExtendedVideo)">Kaikki</button>
+          <button
+            @click="selectVideo(videos.find(v => v.part === 'Kaikki') as ExtendedVideo)"
+            :class="{ 'my-part': preferredVoice === 'Kaikki' }"
+          >
+            Kaikki
+          </button>
         </div>
         <div class="other-videos">
           <div v-for="video in videos.filter(v => v.part !== 'Kaikki')" :key="video.id" class="video-button">
-            <button @click="selectedVideo = video">{{ video.part }}</button>
+            <button
+              @click="selectVideo(video)"
+              :class="{ 'my-part': preferredVoice === video.part }"
+            >
+              {{ video.part }}
+            </button>
           </div>
         </div>
       </div>
@@ -318,6 +408,7 @@ body {
   top: 0;
   z-index: 10;
   display: flex;
+  flex-wrap: wrap;
   gap: 0.75rem;
   align-items: center;
   padding: 0.75rem 1rem;
@@ -345,6 +436,37 @@ body {
   font-size: 0.875rem;
   color: #666;
   white-space: nowrap;
+}
+
+.continue-button {
+  display: block;
+  width: 100%;
+  padding: 0.6rem 1rem;
+  margin: 0;
+  font-size: 1rem;
+  text-align: left;
+  color: #1a73e8;
+  background: #e8f0fe;
+  border: none;
+  border-bottom: 1px solid #d2e3fc;
+  cursor: pointer;
+}
+
+.continue-button:hover {
+  background: #d2e3fc;
+}
+
+.continue-song {
+  display: block;
+  font-size: 0.85rem;
+  color: #666;
+  margin-top: 0.15rem;
+}
+
+.video-button button.my-part {
+  font-weight: 600;
+  border: 2px solid #1a73e8;
+  background: #e8f0fe;
 }
 
 .video-group-header {
