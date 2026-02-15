@@ -17,7 +17,9 @@ export const useVideoStore = defineStore('video', () => {
   const partnameRegex: RegExp = /((A|B|T|S)\d(-\d)?|ALL|Kaikki|Solo)$/;
 
   function setVideos(v: Video[]) {
-    videos.value = v.map(vid => {
+    videos.value = v
+      .filter((vid) => vid.title !== 'Deleted video')
+      .map((vid) => {
       const partMatch = vid.title.match(partnameRegex);
       const part = (partMatch ? partMatch[0] : "UNKNOWN").replace('ALL', 'Kaikki');
       const basename = vid.title.replace(partnameRegex, "").replace("stemmanauha", "").replace("Stemmanauha", "").trim();
@@ -78,14 +80,19 @@ export const useVideoStore = defineStore('video', () => {
 
   const sortedVideosByBasename = computed(() => {
     const entries = Object.entries(videosByBasename.value);
-    // sort by publishedAt of the first video in each group, descending
+    entries.sort((a, b) => a[0].localeCompare(b[0], 'fi'));
+    return Object.fromEntries(entries);
+  });
+
+  const newestBasenames = computed(() => {
+    const entries = Object.entries(videosByBasename.value);
     entries.sort((a, b) => {
       const aDate = new Date(a[1][0].publishedAt).getTime();
       const bDate = new Date(b[1][0].publishedAt).getTime();
       return bDate - aDate;
     });
-    return Object.fromEntries(entries);
+    return new Set(entries.slice(0, 3).map((e) => e[0]));
   });
 
-  return { setVideos, videosByBasename, sortedVideosByBasename }
+  return { setVideos, videosByBasename, sortedVideosByBasename, newestBasenames }
 })

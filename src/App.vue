@@ -1,9 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import { useSecretStore } from './stores/secretstore';
 import { useVideoStore } from './stores/videostore';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { computed } from 'vue';
 import type { ExtendedVideo } from './stores/videostore';
 
 const secretstore = useSecretStore();
@@ -39,6 +37,37 @@ const timeString = (isoString: string) => {
   });
 };
 const selectedVideo = ref<ExtendedVideo | null>(null);
+const searchQuery = ref('');
+const expandedGroups = ref<Set<string>>(new Set());
+
+const filteredVideosByBasename = computed(() => {
+  const all = videostore.sortedVideosByBasename;
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return all;
+  return Object.fromEntries(
+    Object.entries(all).filter(([basename]) =>
+      basename.toLowerCase().includes(q)
+    )
+  );
+});
+
+const totalCount = computed(() => Object.keys(videostore.sortedVideosByBasename).length);
+const filteredCount = computed(() => Object.keys(filteredVideosByBasename.value).length);
+
+const toggleGroup = (basename: string) => {
+  const next = new Set(expandedGroups.value);
+  if (next.has(basename)) {
+    next.delete(basename);
+  } else {
+    next.add(basename);
+  }
+  expandedGroups.value = next;
+};
+
+const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
+const isWithinLastWeek = (isoString: string) =>
+  Date.now() - new Date(isoString).getTime() < oneWeekMs;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let player: any = null;
 
@@ -196,10 +225,30 @@ if (user) {
       </div>
     </div>
     <div v-if="selectedVideo" class="player-margin" :style="`margin-top: ${videoHeight}px`"></div>
-    <div v-for="(videos, basename) in videostore.sortedVideosByBasename" :key="basename" class="video-group">
-      <h3>{{ basename }}</h3>
-      <span>{{ timeString(videos[0].publishedAt) }}</span>
-      <div class="video-button-wrapper">
+    <div
+      class="search-bar"
+      :style="selectedVideo ? { top: `${videoHeight}px` } : {}"
+    >
+      <input
+        v-model="searchQuery"
+        type="search"
+        placeholder="Hae lauluja..."
+        aria-label="Hae lauluja"
+        class="search-input"
+      />
+      <span class="search-count">{{ filteredCount }} / {{ totalCount }} laulua</span>
+    </div>
+    <div v-for="(videos, basename) in filteredVideosByBasename" :key="basename" class="video-group">
+      <header class="video-group-header" @click="toggleGroup(basename)">
+        <span class="expand-icon" :class="{ collapsed: !expandedGroups.has(basename) }">▸</span>
+        <h3>{{ basename }}</h3>
+        <span
+          v-if="videostore.newestBasenames.has(basename) || isWithinLastWeek(videos[0].publishedAt)"
+          class="new-badge"
+        >Uusi</span>
+        <span class="video-group-date">{{ timeString(videos[0].publishedAt) }}</span>
+      </header>
+      <div v-show="expandedGroups.has(basename)" class="video-button-wrapper">
         <div v-if="videos.find(v => v.part === 'Kaikki')" class="video-button video-button-all">
           <button @click="selectedVideo = (videos.find(v => v.part === 'Kaikki') as ExtendedVideo)">Kaikki</button>
         </div>
@@ -210,6 +259,7 @@ if (user) {
         </div>
       </div>
     </div>
+    <p v-if="filteredCount === 0 && totalCount > 0" class="no-results">Ei löydetty lauluja hakusanalla &quot;{{ searchQuery }}&quot;</p>
   </div>
 </template>
 
@@ -223,11 +273,11 @@ body {
   position: fixed;
   top: 0px;
   left: 0px;
+  z-index: 20;
   background-color: black;
   color: white;
   width: 100%;
   height: 320px;
-
   text-align: center;
   padding: 0.5rem 0 0 0;
 }
@@ -242,16 +292,108 @@ body {
   height: 100px;
 }
 
+.search-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background: #fff;
+  border-bottom: 1px solid #e0e0e0;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  outline: none;
+}
+
+.search-input:focus {
+  border-color: #666;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.08);
+}
+
+.search-count {
+  font-size: 0.875rem;
+  color: #666;
+  white-space: nowrap;
+}
+
+.video-group-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  padding: 0.25rem 0;
+  user-select: none;
+}
+
+.video-group-header:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.expand-icon {
+  font-size: 0.75rem;
+  color: #666;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+.expand-icon.collapsed {
+  transform: rotate(0deg);
+}
+
+.expand-icon:not(.collapsed) {
+  transform: rotate(90deg);
+}
+
 .video-group>h3 {
   margin: 0;
+  flex: 1;
+  font-size: 1.1rem;
+}
+
+.new-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  background: #1a73e8;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.video-group-date {
+  font-size: 0.8rem;
+  color: #666;
 }
 
 .video-group {
-  padding: 0.5rem;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid #eee;
 }
 
-.video-group:nth-child(2n) {
-  background-color: #f0f0f0;
+.video-group:nth-child(odd) {
+  background-color: #fafafa;
+}
+
+.video-group:nth-child(even) {
+  background-color: #fff;
+}
+
+.no-results {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: #666;
 }
 
 .video-button-wrapper {
