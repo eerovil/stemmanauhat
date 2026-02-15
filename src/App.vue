@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue';
+import { ref, watch, computed, nextTick } from 'vue';
 import { useSecretStore } from './stores/secretstore';
 import { useVideoStore } from './stores/videostore';
 import type { ExtendedVideo } from './stores/videostore';
@@ -38,7 +38,7 @@ const timeString = (isoString: string) => {
 };
 const selectedVideo = ref<ExtendedVideo | null>(null);
 const searchQuery = ref('');
-const expandedGroups = ref<Set<string>>(new Set());
+const expandedBasename = ref<string | null>(null);
 
 const filteredVideosByBasename = computed(() => {
   const all = videostore.sortedVideosByBasename;
@@ -55,14 +55,30 @@ const totalCount = computed(() => Object.keys(videostore.sortedVideosByBasename)
 const filteredCount = computed(() => Object.keys(filteredVideosByBasename.value).length);
 
 const toggleGroup = (basename: string) => {
-  const next = new Set(expandedGroups.value);
-  if (next.has(basename)) {
-    next.delete(basename);
-  } else {
-    next.add(basename);
-  }
-  expandedGroups.value = next;
+  if (expandedBasename.value === basename) return;
+  expandedBasename.value = basename;
+  nextTick(() => scrollExpandedIntoView(basename));
 };
+
+function scrollExpandedIntoView(basename: string) {
+  const group = document.querySelector(`[data-basename="${CSS.escape(basename)}"]`);
+  if (!group) return;
+  const wrapper = group.querySelector('.video-button-wrapper');
+  if (!wrapper) return;
+  const rect = wrapper.getBoundingClientRect();
+  const videoTop = selectedVideo.value ? videoHeight.value : 0;
+  const padding = 8;
+  let scrollY = 0;
+  if (rect.top < videoTop + padding) {
+    scrollY = Math.max(scrollY, videoTop + padding - rect.top);
+  }
+  if (rect.bottom > window.innerHeight) {
+    scrollY = Math.max(scrollY, rect.bottom - window.innerHeight);
+  }
+  if (scrollY > 0) {
+    window.scrollBy({ top: scrollY, behavior: 'smooth' });
+  }
+}
 
 const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
 const isWithinLastWeek = (isoString: string) =>
@@ -238,9 +254,14 @@ if (user) {
       />
       <span class="search-count">{{ filteredCount }} / {{ totalCount }} laulua</span>
     </div>
-    <div v-for="(videos, basename) in filteredVideosByBasename" :key="basename" class="video-group">
+    <div
+      v-for="(videos, basename) in filteredVideosByBasename"
+      :key="basename"
+      class="video-group"
+      :data-basename="basename"
+    >
       <header class="video-group-header" @click="toggleGroup(basename)">
-        <span class="expand-icon" :class="{ collapsed: !expandedGroups.has(basename) }">▸</span>
+        <span class="expand-icon" :class="{ collapsed: expandedBasename !== basename }">▸</span>
         <h3>{{ basename }}</h3>
         <span
           v-if="videostore.newestBasenames.has(basename) || isWithinLastWeek(videos[0].publishedAt)"
@@ -248,7 +269,7 @@ if (user) {
         >Uusi</span>
         <span class="video-group-date">{{ timeString(videos[0].publishedAt) }}</span>
       </header>
-      <div v-show="expandedGroups.has(basename)" class="video-button-wrapper">
+      <div v-show="expandedBasename === basename" class="video-button-wrapper">
         <div v-if="videos.find(v => v.part === 'Kaikki')" class="video-button video-button-all">
           <button @click="selectedVideo = (videos.find(v => v.part === 'Kaikki') as ExtendedVideo)">Kaikki</button>
         </div>
