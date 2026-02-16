@@ -167,19 +167,31 @@ function scrollExpandedIntoView(basename: string) {
   if (!group) return;
   const wrapper = group.querySelector('.video-button-wrapper');
   if (!wrapper) return;
-  const rect = wrapper.getBoundingClientRect();
-  const videoTop = selectedVideo.value ? playerTotalHeight.value : 0;
-  const padding = 8;
-  let scrollY = 0;
-  if (rect.top < videoTop + padding) {
-    scrollY = Math.max(scrollY, videoTop + padding - rect.top);
-  }
-  if (rect.bottom > window.innerHeight) {
-    scrollY = Math.max(scrollY, rect.bottom - window.innerHeight);
-  }
-  if (scrollY > 0) {
-    window.scrollBy({ top: scrollY, behavior: 'smooth' });
-  }
+
+  const runScroll = () => {
+    const rect = wrapper.getBoundingClientRect();
+    const videoTop = selectedVideo.value ? playerTotalHeight.value : 0;
+    const searchBar = document.querySelector('.search-bar');
+    const searchBarHeight = searchBar ? searchBar.getBoundingClientRect().height : 0;
+    const padding = 80;
+    const minTop = videoTop + searchBarHeight + padding;
+
+    if (rect.top < minTop) {
+      window.scrollBy({
+        top: rect.top - minTop,
+        behavior: 'smooth',
+      });
+    } else if (rect.bottom > window.innerHeight) {
+      window.scrollBy({
+        top: rect.bottom - window.innerHeight,
+        behavior: 'smooth',
+      });
+    }
+  };
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(runScroll);
+  });
 }
 
 const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
