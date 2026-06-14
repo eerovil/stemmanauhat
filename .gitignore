@@ -32,3 +32,6 @@ coverage
 .pnpm-store
 # never commit plaintext
 **/secrets/raw/**
+
+# local self-signed dev TLS certs (private key) for the HTTPS dev server
+certs/

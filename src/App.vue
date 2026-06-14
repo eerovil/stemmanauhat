@@ -216,10 +216,33 @@ declare global {
   }
 }
 
+/** Tap-to-toggle play/pause, since the YouTube controls are hidden. */
+function toggleYtPlayback() {
+  if (!player?.getPlayerState) return;
+  // YT.PlayerState.PLAYING === 1
+  if (player.getPlayerState() === 1) player.pauseVideo();
+  else player.playVideo();
+}
+
+/** Quick seek by `delta` seconds (negative = back), clamped at 0. */
+function seekBy(delta: number) {
+  if (!player?.getCurrentTime) return;
+  player.seekTo(Math.max(0, player.getCurrentTime() + delta), true);
+}
+
+/** Best-effort: request the highest available playback quality. */
+function setMaxQuality() {
+  const levels = player?.getAvailableQualityLevels?.();
+  // getAvailableQualityLevels returns highest -> lowest.
+  if (levels && levels.length) player?.setPlaybackQuality?.(levels[0]);
+}
+
 const onPlayerReady = (event: { target: { playVideo: () => void; }; }) => {
   console.log('Player ready');
   event.target.playVideo();
-  applyCrop();
+  setMaxQuality();
+  startProgressPolling();
+  // The zoom/pan-in is triggered from onStateChange once playback actually starts.
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -258,7 +281,65 @@ function detectMobile() {
 const videoHeight = ref(320);
 /** Height of the title row inside .player (padding + span + margin) so spacer matches exactly */
 const PLAYER_HEADER_PX = 40;
+/** Height reserved for the seek-bar row (shown only when not fullscreen). */
+const PLAYER_SEEK_PX = 34;
+/** Height reserved for the always-visible zoom-slider row (not fullscreen). */
+const PLAYER_ZOOM_PX = 38;
 const fullScreen = ref(false);
+
+/* ---------------- Playback / seek bar ---------------- */
+const currentTime = ref(0);
+const duration = ref(0);
+const seeking = ref(false);
+let progressTimer: ReturnType<typeof setInterval> | null = null;
+
+/** Poll the player for time/duration (the YT API doesn't push updates). */
+function startProgressPolling() {
+  if (progressTimer) return;
+  progressTimer = setInterval(() => {
+    if (!player?.getCurrentTime || seeking.value) return;
+    const d = player.getDuration?.() ?? 0;
+    if (d) duration.value = d;
+    currentTime.value = player.getCurrentTime();
+
+    // Reverse "exit" pan over the final seconds of the video.
+    if (duration.value > 0) {
+      const remaining = duration.value - currentTime.value;
+      if (!endPanStarted && !cropAnimating && remaining <= END_PAN_START_BEFORE && remaining > 0) {
+        endPanStarted = true;
+        startEndPan();
+      } else if (endPanStarted && remaining > END_PAN_START_BEFORE) {
+        // Scrubbed back out of the end zone — restore the saved crop position.
+        endPanStarted = false;
+        cropAnimating = false;
+        applyCrop(false);
+      }
+    }
+  }, 250);
+}
+
+function onSeekInput(e: Event) {
+  seeking.value = true; // pause polling so the thumb follows the drag
+  currentTime.value = +(e.target as HTMLInputElement).value;
+}
+function onSeekCommit(e: Event) {
+  const t = +(e.target as HTMLInputElement).value;
+  player?.seekTo?.(t, true);
+  currentTime.value = t;
+  seeking.value = false;
+  if (t <= 0.5) {
+    // Scrubbed back to the start: replay the intro pan-in once playback resumes.
+    endPanStarted = false;
+    prepareCropForPlayback({ ...crop.value });
+  }
+}
+
+function fmtTime(s: number): string {
+  if (!isFinite(s) || s < 0) s = 0;
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${String(sec).padStart(2, '0')}`;
+}
 
 /* ---------------- Crop / zoom ---------------- */
 const isDev = import.meta.env.DEV;
@@ -275,14 +356,97 @@ function loadCropPresets(presets: unknown) {
   cropPresets.bySong = p.bySong ?? {};
 }
 
+/** Duration of the horizontal (left-right) pan animation. */
+const CROP_ANIM_MS = 3000;
+/** Extra hold after playback starts before the pan begins. */
+const CROP_ANIM_DELAY_MS = 2000;
+/** Horizontal origin the pan starts from (far left) before sliding to target. */
+const CROP_PAN_START_X = 0;
+/** True while animateCropIn is driving the transform, so the deep watcher
+ * doesn't snap it straight to the target and kill the transition. */
+let cropAnimating = false;
+let cropAnimTimer: ReturnType<typeof setTimeout> | null = null;
+/** Crop to zoom into once the freshly selected video actually starts playing. */
+let pendingCrop: Crop | null = null;
+/** Seconds before the end to begin the reverse pan, and how long it lasts. */
+const END_PAN_START_BEFORE = 8;
+const END_PAN_MS = 3000;
+/** True once the end-of-video reverse pan has been kicked off for this video. */
+let endPanStarted = false;
+
 /** Apply the current crop to the YouTube iframe (scale + transform-origin). */
-function applyCrop() {
+function applyCrop(animate = false) {
   const frame: HTMLIFrameElement | undefined = player?.getIframe?.();
   if (!frame) return;
+  frame.style.transition = animate ? `transform ${CROP_ANIM_MS}ms ease-in-out` : 'none';
   frame.style.transformOrigin = `${crop.value.originX}% ${crop.value.originY}%`;
   frame.style.transform = `scale(${crop.value.scale})`;
 }
-watch(crop, applyCrop, { deep: true });
+
+/**
+ * Apply the target crop, animating ONLY the horizontal (left-right) pan.
+ * Zoom (scale) and the vertical position snap instantly; the horizontal origin
+ * starts centered and, after a short hold, slides to the saved position.
+ */
+function animateCropIn(target: Crop) {
+  if (cropAnimTimer) { clearTimeout(cropAnimTimer); cropAnimTimer = null; }
+  cropAnimating = true;          // suppress the deep watcher's instant apply
+  crop.value = { ...target };    // reflect target in sliders/state
+  const frame: HTMLIFrameElement | undefined = player?.getIframe?.();
+  if (!frame) { cropAnimating = false; return; } // no iframe yet; onReady retries
+  // Instant: zoom + vertical position; horizontal starts centered.
+  frame.style.transition = 'none';
+  frame.style.transformOrigin = `${CROP_PAN_START_X}% ${target.originY}%`;
+  frame.style.transform = `scale(${target.scale})`;
+  void frame.getBoundingClientRect();            // flush the start state
+  // After the hold, slide the horizontal origin to the target (left-right pan).
+  cropAnimTimer = setTimeout(() => {
+    const f: HTMLIFrameElement | undefined = player?.getIframe?.();
+    if (f) {
+      f.style.transition = `transform-origin ${CROP_ANIM_MS}ms ease-in-out`;
+      f.style.transformOrigin = `${target.originX}% ${target.originY}%`;
+    }
+    cropAnimTimer = setTimeout(() => {
+      cropAnimating = false;
+      applyCrop(false);                          // settle + drop the transition
+      cropAnimTimer = null;
+    }, CROP_ANIM_MS + 60);
+  }, CROP_ANIM_DELAY_MS);
+}
+
+/**
+ * Reverse pan as the video ends: slide the horizontal origin to fully right
+ * over END_PAN_MS. Vertical and zoom are left untouched.
+ */
+function startEndPan() {
+  if (cropAnimTimer) { clearTimeout(cropAnimTimer); cropAnimTimer = null; }
+  const frame: HTMLIFrameElement | undefined = player?.getIframe?.();
+  if (!frame) return;
+  cropAnimating = true; // protect from the deep watcher during the exit pan
+  frame.style.transition = `transform-origin ${END_PAN_MS}ms ease-in-out`;
+  frame.style.transformOrigin = `100% ${crop.value.originY}%`;
+  cropAnimTimer = setTimeout(() => { cropAnimating = false; cropAnimTimer = null; }, END_PAN_MS + 100);
+}
+
+/**
+ * Hold the iframe fully zoomed out (origin already homed on the target) and
+ * remember the target. The zoom/pan-in is deferred until playback actually
+ * starts (PLAYING state in onStateChange).
+ */
+function prepareCropForPlayback(target: Crop) {
+  if (cropAnimTimer) { clearTimeout(cropAnimTimer); cropAnimTimer = null; }
+  cropAnimating = true;          // keep the deep watcher from applying the target early
+  pendingCrop = { ...target };
+  crop.value = { ...target };    // sliders reflect the saved values right away
+  const frame: HTMLIFrameElement | undefined = player?.getIframe?.();
+  if (!frame) return;            // no iframe yet; it defaults to zoomed-out anyway
+  frame.style.transition = 'none';
+  frame.style.transformOrigin = `${target.originX}% ${target.originY}%`;
+  frame.style.transform = 'scale(1)';
+}
+
+// Live slider edits (and resizes) apply instantly; skip while animating.
+watch(crop, () => { if (!cropAnimating) applyCrop(false); }, { deep: true });
 
 function resetCrop() {
   crop.value = { ...IDENTITY_CROP };
@@ -309,12 +473,6 @@ async function persistPresets() {
   }
 }
 
-function saveCropForPart() {
-  if (!selectedVideo.value) return;
-  cropPresets.byPart[selectedVideo.value.part] = { ...crop.value };
-  persistPresets();
-}
-
 function saveCropForSong() {
   if (!selectedVideo.value) return;
   const base = selectedVideo.value.basename;
@@ -332,7 +490,9 @@ watch([showCropControls, fullScreen, saveStatus], () => {
 });
 
 const playerTotalHeight = computed(
-  () => videoHeight.value + PLAYER_HEADER_PX + controlsHeight.value,
+  () => videoHeight.value + PLAYER_HEADER_PX
+    + (fullScreen.value ? 0 : PLAYER_SEEK_PX + PLAYER_ZOOM_PX)
+    + controlsHeight.value,
 );
 const handleOrientation = async () => {
   // Wait 500 ms to allow orientation change to complete
@@ -372,9 +532,13 @@ window.screen.orientation.onchange = handleOrientation;
 
 watch(selectedVideo, async (newVideo) => {
   if (newVideo) {
-    // Resolve the crop for this song/part; deep watcher + onReady apply it to the iframe.
-    crop.value = resolveCrop(cropPresets, newVideo.basename, newVideo.part);
-    nextTick(applyCrop);
+    // Resolve the crop for this song/part. For an existing player we animate the
+    // zoom/pan in now; for a brand-new player onReady does it once the iframe exists.
+    currentTime.value = 0; // reset the seek bar for the newly selected video
+    endPanStarted = false; // re-arm the end-of-video reverse pan
+    const songParts = (videostore.videosByBasename[newVideo.basename] ?? []).map(v => v.part);
+    const target = resolveCrop(cropPresets, newVideo.basename, newVideo.part, songParts);
+    prepareCropForPlayback(target); // stay zoomed out; pan in when playback starts
     if (!player) {
       // wait 1ms
       await new Promise(resolve => setTimeout(resolve, 1));
@@ -383,7 +547,7 @@ watch(selectedVideo, async (newVideo) => {
         height: videoHeight.value.toString(),
         width: window.innerWidth.toString(),
         playerVars: {
-          controls: 1,
+          controls: 0,
           disablekb: 1,
           enablejsapi: 1,
           fs: 0,
@@ -398,6 +562,15 @@ watch(selectedVideo, async (newVideo) => {
           'onReady': onPlayerReady,
           'onError': onPlayerError,
           'onStateChange': (event: { data: number; }) => {
+            // 1 = PLAYING: kick off the zoom/pan-in for a newly selected video.
+            if (event.data === 1) {
+              setMaxQuality();
+              if (pendingCrop) {
+                const target = pendingCrop;
+                pendingCrop = null;
+                animateCropIn(target);
+              }
+            }
             if (event.data === 3) {
               if (player.getCurrentTime() > 0) {
                 return;
@@ -412,7 +585,7 @@ watch(selectedVideo, async (newVideo) => {
         }
       });
     } else {
-      player.loadVideoById(String(newVideo.id));
+      player.loadVideoById({ videoId: String(newVideo.id), suggestedQuality: 'highres' });
     }
     console.log('Player created', player);
   }
@@ -447,6 +620,18 @@ if (user) {
         <span class="player-title">{{ selectedVideo.title }}</span>
         <button
           type="button"
+          class="seek-btn"
+          aria-label="Taakse 10 s"
+          @click="seekBy(-10)"
+        >⟲10</button>
+        <button
+          type="button"
+          class="seek-btn"
+          aria-label="Eteen 10 s"
+          @click="seekBy(10)"
+        >10⟳</button>
+        <button
+          type="button"
           class="crop-toggle"
           :class="{ active: showCropControls }"
           aria-label="Rajaa / zoomaa"
@@ -455,12 +640,32 @@ if (user) {
       </div>
       <div id="yt-wrapper" class="player-yt-wrapper" :style="{ height: `${videoHeight}px` }">
         <div id="yt-frame"></div>
+        <!-- Transparent catcher: blocks YouTube's own hover/title/share/end-screen
+             chrome and intercepts taps to toggle play/pause via the API. -->
+        <div class="yt-blocker" @click="toggleYtPlayback"></div>
       </div>
-      <div v-if="showCropControls && !fullScreen" ref="controlsRef" class="crop-controls">
+      <div v-if="!fullScreen" class="seek-bar-row">
+        <span class="seek-time">{{ fmtTime(currentTime) }}</span>
+        <input
+          class="seek-range"
+          type="range"
+          min="0"
+          :max="duration || 0"
+          step="0.1"
+          :value="currentTime"
+          aria-label="Kelaa"
+          @input="onSeekInput"
+          @change="onSeekCommit"
+        />
+        <span class="seek-time">{{ fmtTime(duration) }}</span>
+      </div>
+      <div v-if="!fullScreen" class="crop-zoom-row">
         <label class="crop-slider">
           <span>Zoom</span>
           <input type="range" min="1" max="3" step="0.05" v-model.number="crop.scale" />
         </label>
+      </div>
+      <div v-if="showCropControls && !fullScreen" ref="controlsRef" class="crop-controls">
         <label class="crop-slider">
           <span>↔</span>
           <input type="range" min="0" max="100" step="1" v-model.number="crop.originX" />
@@ -472,7 +677,6 @@ if (user) {
         <div class="crop-buttons">
           <button type="button" @click="resetCrop">Nollaa</button>
           <template v-if="isDev">
-            <button type="button" @click="saveCropForPart">Tallenna osalle ({{ selectedVideo.part }})</button>
             <button type="button" @click="saveCropForSong">Tallenna laululle</button>
           </template>
         </div>
@@ -599,15 +803,68 @@ body {
   cursor: pointer;
 }
 
+.seek-btn {
+  flex-shrink: 0;
+  height: 2rem;
+  padding: 0 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: white;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.seek-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.6rem;
+  flex-shrink: 0;
+}
+
+.seek-time {
+  font-size: 0.75rem;
+  color: #ccc;
+  font-variant-numeric: tabular-nums;
+  min-width: 2.6rem;
+  text-align: center;
+}
+
+.seek-range {
+  flex: 1;
+  min-width: 0;
+  accent-color: #1a73e8;
+  cursor: pointer;
+}
+
 .crop-toggle.active {
   background: #1a73e8;
   border-color: #1a73e8;
 }
 
 .player-yt-wrapper {
+  position: relative;
   flex-shrink: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+/* Covers the visible video window; sits above the (scaled) iframe so none of
+   YouTube's chrome is hoverable/clickable. Tap toggles play/pause instead. */
+.yt-blocker {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  cursor: pointer;
+  background: transparent;
+}
+
+.crop-zoom-row {
+  flex-shrink: 0;
+  padding: 0.25rem 0.75rem;
+  background: #111;
 }
 
 .crop-controls {
