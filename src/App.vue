@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { ref, watch, computed, nextTick } from 'vue';
+import { ref, reactive, watch, computed, nextTick } from 'vue';
 import { useSecretStore } from './stores/secretstore';
 import { useVideoStore } from './stores/videostore';
 import type { ExtendedVideo } from './stores/videostore';
+import {
+  type Crop,
+  type CropPresets,
+  IDENTITY_CROP,
+  emptyPresets,
+  resolveCrop,
+} from './crop';
 
 const secretstore = useSecretStore();
 const videostore = useVideoStore();
@@ -23,6 +30,7 @@ if (passphraseFromPath) {
     const dataObj = JSON.parse(decryptedData.value);
     if (dataObj.videos) {
       videostore.setVideos(dataObj.videos);
+      loadCropPresets(dataObj.cropPresets);
       loadLastPractisedSnapshot();
     } else {
       console.warn('No videos found in decrypted data');
@@ -211,6 +219,7 @@ declare global {
 const onPlayerReady = (event: { target: { playVideo: () => void; }; }) => {
   console.log('Player ready');
   event.target.playVideo();
+  applyCrop();
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -249,8 +258,82 @@ function detectMobile() {
 const videoHeight = ref(320);
 /** Height of the title row inside .player (padding + span + margin) so spacer matches exactly */
 const PLAYER_HEADER_PX = 40;
-const playerTotalHeight = computed(() => videoHeight.value + PLAYER_HEADER_PX);
 const fullScreen = ref(false);
+
+/* ---------------- Crop / zoom ---------------- */
+const isDev = import.meta.env.DEV;
+const cropPresets = reactive<CropPresets>(emptyPresets());
+const crop = ref<Crop>({ ...IDENTITY_CROP });
+const showCropControls = ref(false);
+const saveStatus = ref('');
+const controlsRef = ref<HTMLElement | null>(null);
+const controlsHeight = ref(0);
+
+function loadCropPresets(presets: unknown) {
+  const p = (presets ?? {}) as Partial<CropPresets>;
+  cropPresets.byPart = p.byPart ?? {};
+  cropPresets.bySong = p.bySong ?? {};
+}
+
+/** Apply the current crop to the YouTube iframe (scale + transform-origin). */
+function applyCrop() {
+  const frame: HTMLIFrameElement | undefined = player?.getIframe?.();
+  if (!frame) return;
+  frame.style.transformOrigin = `${crop.value.originX}% ${crop.value.originY}%`;
+  frame.style.transform = `scale(${crop.value.scale})`;
+}
+watch(crop, applyCrop, { deep: true });
+
+function resetCrop() {
+  crop.value = { ...IDENTITY_CROP };
+}
+
+async function persistPresets() {
+  if (!decryptedData.value) return;
+  try {
+    const dataObj = JSON.parse(decryptedData.value);
+    dataObj.cropPresets = JSON.parse(JSON.stringify(cropPresets));
+    const passphrase = secretstore.getPassphrase();
+    if (passphrase) dataObj.passphrase = passphrase;
+    const res = await fetch('/__save-presets', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ user, data: dataObj }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    decryptedData.value = JSON.stringify(dataObj);
+    saveStatus.value = 'Tallennettu ✓ (commitoi muutos)';
+  } catch (err) {
+    saveStatus.value = 'Tallennus epäonnistui';
+    console.error('Preset save failed:', err);
+  }
+}
+
+function saveCropForPart() {
+  if (!selectedVideo.value) return;
+  cropPresets.byPart[selectedVideo.value.part] = { ...crop.value };
+  persistPresets();
+}
+
+function saveCropForSong() {
+  if (!selectedVideo.value) return;
+  const base = selectedVideo.value.basename;
+  if (!cropPresets.bySong[base]) cropPresets.bySong[base] = {};
+  cropPresets.bySong[base][selectedVideo.value.part] = { ...crop.value };
+  persistPresets();
+}
+
+// Keep the layout spacer in sync with the (variable-height) controls panel.
+watch([showCropControls, fullScreen, saveStatus], () => {
+  nextTick(() => {
+    controlsHeight.value =
+      showCropControls.value && !fullScreen.value ? (controlsRef.value?.offsetHeight ?? 0) : 0;
+  });
+});
+
+const playerTotalHeight = computed(
+  () => videoHeight.value + PLAYER_HEADER_PX + controlsHeight.value,
+);
 const handleOrientation = async () => {
   // Wait 500 ms to allow orientation change to complete
   await new Promise(resolve => setTimeout(resolve, 500));
@@ -279,6 +362,7 @@ const handleOrientation = async () => {
   // Set player height if player exists
   if (player) {
     player.setSize(window.innerWidth, videoHeight.value);
+    applyCrop();
   } else {
     console.log('Player not initialized yet');
   }
@@ -288,6 +372,9 @@ window.screen.orientation.onchange = handleOrientation;
 
 watch(selectedVideo, async (newVideo) => {
   if (newVideo) {
+    // Resolve the crop for this song/part; deep watcher + onReady apply it to the iframe.
+    crop.value = resolveCrop(cropPresets, newVideo.basename, newVideo.part);
+    nextTick(applyCrop);
     if (!player) {
       // wait 1ms
       await new Promise(resolve => setTimeout(resolve, 1));
@@ -356,9 +443,40 @@ if (user) {
       class="player"
       :style="{ height: `${playerTotalHeight}px` }"
     >
-      <span v-if="!fullScreen">{{ selectedVideo.title }}</span>
+      <div v-if="!fullScreen" class="player-title-row">
+        <span class="player-title">{{ selectedVideo.title }}</span>
+        <button
+          type="button"
+          class="crop-toggle"
+          :class="{ active: showCropControls }"
+          aria-label="Rajaa / zoomaa"
+          @click="showCropControls = !showCropControls"
+        >⛶</button>
+      </div>
       <div id="yt-wrapper" class="player-yt-wrapper" :style="{ height: `${videoHeight}px` }">
         <div id="yt-frame"></div>
+      </div>
+      <div v-if="showCropControls && !fullScreen" ref="controlsRef" class="crop-controls">
+        <label class="crop-slider">
+          <span>Zoom</span>
+          <input type="range" min="1" max="3" step="0.05" v-model.number="crop.scale" />
+        </label>
+        <label class="crop-slider">
+          <span>↔</span>
+          <input type="range" min="0" max="100" step="1" v-model.number="crop.originX" />
+        </label>
+        <label class="crop-slider">
+          <span>↕</span>
+          <input type="range" min="0" max="100" step="1" v-model.number="crop.originY" />
+        </label>
+        <div class="crop-buttons">
+          <button type="button" @click="resetCrop">Nollaa</button>
+          <template v-if="isDev">
+            <button type="button" @click="saveCropForPart">Tallenna osalle ({{ selectedVideo.part }})</button>
+            <button type="button" @click="saveCropForSong">Tallenna laululle</button>
+          </template>
+        </div>
+        <span v-if="saveStatus" class="crop-status">{{ saveStatus }}</span>
       </div>
     </div>
     <div
@@ -450,16 +568,98 @@ body {
   box-sizing: border-box;
 }
 
-.player>span {
-  display: block;
-  font-size: 1rem;
+.player-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 0.5rem;
   margin-bottom: 0.5rem;
   flex-shrink: 0;
+}
+
+.player-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crop-toggle {
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  font-size: 1rem;
+  line-height: 1;
+  color: white;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.crop-toggle.active {
+  background: #1a73e8;
+  border-color: #1a73e8;
 }
 
 .player-yt-wrapper {
   flex-shrink: 0;
   min-height: 0;
+  overflow: hidden;
+}
+
+.crop-controls {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  background: #111;
+}
+
+.crop-slider {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+  color: #ddd;
+}
+
+.crop-slider > span {
+  width: 2.5rem;
+  flex-shrink: 0;
+  text-align: left;
+}
+
+.crop-slider input[type='range'] {
+  flex: 1;
+  min-width: 0;
+}
+
+.crop-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.15rem;
+}
+
+.crop-buttons button {
+  flex: 1;
+  min-width: max-content;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+  color: white;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.crop-status {
+  font-size: 0.75rem;
+  color: #8ab4f8;
 }
 
 .player-margin {
