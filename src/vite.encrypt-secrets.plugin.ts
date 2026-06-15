@@ -80,6 +80,35 @@ async function encryptTree(opts: {
   );
 }
 
+/**
+ * Encrypt a single user's raw file -> encrypted file and return the absolute
+ * destination path. Used by the dev save endpoint so a save deterministically
+ * refreshes the committed ciphertext without waiting on the file-watcher.
+ */
+export async function encryptUserFile(opts: {
+  user: string;
+  rawDir: string;
+  encDir: string;
+  iterations: number;
+}): Promise<string> {
+  const { user, rawDir, encDir, iterations } = opts;
+  const absSrc = path.join(rawDir, `${user}.json`);
+  const buf = await fs.readFile(absSrc);
+  const passphrase =
+    (JSON.parse(buf.toString("utf8")) as { passphrase?: string }).passphrase ||
+    process.env.SECRETS_PASSPHRASE;
+  if (!passphrase) {
+    throw new Error(`No passphrase found for file ${absSrc}.`);
+  }
+  const dst = path.join(encDir, `${user}.json`) + ".json";
+  await fs.mkdir(path.dirname(dst), { recursive: true });
+  await fs.writeFile(dst, JSON.stringify(encryptBufferPBKDF2(passphrase, buf, iterations)));
+  return dst;
+}
+
+/** Default PBKDF2 iteration count, matching the EncryptSecrets plugin. */
+export const DEFAULT_PBKDF2_ITER = Number(process.env.SECRETS_PBKDF2_ITER ?? 300000);
+
 async function pruneStale(opts: { rawDir: string; encDir: string }) {
   const { rawDir, encDir } = opts;
   const raw = await listFilesRecursive(rawDir);

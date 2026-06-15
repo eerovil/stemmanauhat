@@ -68,10 +68,16 @@ export const useVideoStore = defineStore('video', () => {
         if (orderA !== orderB) {
           return orderA - orderB;
         }
-        // If same category, sort by part number if applicable
-        const numA = parseInt(a.part.replace(/\D/g, '')) || 0;
-        const numB = parseInt(b.part.replace(/\D/g, '')) || 0;
-        return numA - numB;
+        // Same category: sort by part number, then divisi (e.g. T1-1 before T1-2,
+        // and the whole T1 group before T2). Parse the numbers separately so the
+        // divisi suffix isn't concatenated (T1-1 -> 1,1 not 11).
+        const parseNums = (part: string): [number, number] => {
+          const m = part.match(/(\d+)(?:-(\d+))?/);
+          return [m ? +m[1] : 0, m && m[2] ? +m[2] : 0];
+        };
+        const [pa, sa] = parseNums(a.part);
+        const [pb, sb] = parseNums(b.part);
+        return pa !== pb ? pa - pb : sa - sb;
       });
     }
 
