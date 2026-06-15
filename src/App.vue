@@ -140,22 +140,45 @@ function selectVideo(video: ExtendedVideo) {
   saveLastPractised(video);
 }
 
+/** Song list ordering. */
+const sortMode = ref<'name' | 'date'>('name');
+
 const filteredVideosByBasename = computed(() => {
-  const all = videostore.sortedVideosByBasename;
+  let entries = Object.entries(videostore.videosByBasename);
+  if (sortMode.value === 'date') {
+    // Newest first by the group's upload date.
+    entries = entries.slice().sort(
+      (a, b) => new Date(b[1][0].publishedAt).getTime() - new Date(a[1][0].publishedAt).getTime(),
+    );
+  } else {
+    entries = entries.slice().sort((a, b) => a[0].localeCompare(b[0], 'fi'));
+  }
   const q = searchQuery.value.trim().toLowerCase();
-  if (!q) return all;
-  return Object.fromEntries(
-    Object.entries(all).filter(([basename]) =>
-      basename.toLowerCase().includes(q)
-    )
-  );
+  if (q) entries = entries.filter(([basename]) => basename.toLowerCase().includes(q));
+  return Object.fromEntries(entries);
 });
 
-const totalCount = computed(() => Object.keys(videostore.sortedVideosByBasename).length);
+const totalCount = computed(() => Object.keys(videostore.videosByBasename).length);
 const filteredCount = computed(() => Object.keys(filteredVideosByBasename.value).length);
 
+/** While a song is open, show ONLY that song so the user can't scroll away. */
+const displayedGroups = computed(() => {
+  if (selectedVideo.value && expandedBasename.value) {
+    const g = videostore.videosByBasename[expandedBasename.value];
+    return g ? { [expandedBasename.value]: g } : {};
+  }
+  return filteredVideosByBasename.value;
+});
+
 const toggleGroup = (basename: string) => {
-  if (expandedBasename.value === basename) return;
+  if (expandedBasename.value === basename) {
+    // Collapse the open song and tear down the player.
+    expandedBasename.value = null;
+    selectedVideo.value = null;
+    if (player?.destroy) { try { player.destroy(); } catch { /* already gone */ } }
+    player = null;
+    return;
+  }
   expandedBasename.value = basename;
   const group = videostore.videosByBasename[basename];
   if (group) {
@@ -765,8 +788,8 @@ if (user) {
       :style="{ height: `${playerTotalHeight}px` }"
     ></div>
     <div
+      v-if="!selectedVideo"
       class="search-bar"
-      :style="selectedVideo ? { top: `${playerTotalHeight}px` } : {}"
     >
       <input
         v-model="searchQuery"
@@ -775,10 +798,22 @@ if (user) {
         aria-label="Hae lauluja"
         class="search-input"
       />
+      <div class="sort-toggle" role="group" aria-label="Järjestä">
+        <button
+          type="button"
+          :class="{ active: sortMode === 'name' }"
+          @click="sortMode = 'name'"
+        >Nimi</button>
+        <button
+          type="button"
+          :class="{ active: sortMode === 'date' }"
+          @click="sortMode = 'date'"
+        >Lisätty</button>
+      </div>
       <span class="search-count">{{ filteredCount }} / {{ totalCount }} laulua</span>
     </div>
     <button
-      v-if="initialLastPractised"
+      v-if="initialLastPractised && !selectedVideo"
       type="button"
       class="continue-button"
       @click="restoreLastPractised(initialLastPractised)"
@@ -787,7 +822,7 @@ if (user) {
       <span class="continue-song">{{ initialLastPractised.basename }} ({{ initialLastPractised.part }})</span>
     </button>
     <div
-      v-for="(videos, basename) in filteredVideosByBasename"
+      v-for="(videos, basename) in displayedGroups"
       :key="basename"
       class="video-group"
       :data-basename="basename"
@@ -1056,6 +1091,32 @@ body {
   font-size: 0.875rem;
   color: #666;
   white-space: nowrap;
+}
+
+.sort-toggle {
+  display: flex;
+  flex-shrink: 0;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.sort-toggle button {
+  padding: 0.4rem 0.7rem;
+  font-size: 0.85rem;
+  border: none;
+  background: #fff;
+  color: #444;
+  cursor: pointer;
+}
+
+.sort-toggle button + button {
+  border-left: 1px solid #ccc;
+}
+
+.sort-toggle button.active {
+  background: #1a73e8;
+  color: #fff;
 }
 
 .continue-button {
