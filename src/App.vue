@@ -230,11 +230,23 @@ function seekBy(delta: number) {
   player.seekTo(Math.max(0, player.getCurrentTime() + delta), true);
 }
 
-/** Best-effort: request the highest available playback quality. */
+/** Quality ranking, highest -> lowest (matches YT quality strings). */
+const QUALITY_ORDER = ['highres', 'hd2160', 'hd1440', 'hd1080', 'hd720', 'large', 'medium', 'small', 'tiny'];
+/** Cap requests at 1080p: asking for 1440p/4K makes YouTube drop to 480p in
+ * this embedded/scaled context, so 1080p is the sweet spot. */
+const MAX_QUALITY = 'hd1080';
+
+/** Request the highest available quality that is no higher than MAX_QUALITY. */
 function setMaxQuality() {
-  const levels = player?.getAvailableQualityLevels?.();
-  // getAvailableQualityLevels returns highest -> lowest.
-  if (levels && levels.length) player?.setPlaybackQuality?.(levels[0]);
+  const levels = player?.getAvailableQualityLevels?.() ?? [];
+  if (!levels.length) return;
+  const capIdx = QUALITY_ORDER.indexOf(MAX_QUALITY);
+  // levels are highest-first; pick the first one that is <= MAX_QUALITY.
+  const pick = levels.find((l: string) => {
+    const i = QUALITY_ORDER.indexOf(l);
+    return i >= 0 && i >= capIdx;
+  });
+  if (pick) player?.setPlaybackQuality?.(pick);
 }
 
 const onPlayerReady = (event: { target: { playVideo: () => void; }; }) => {
@@ -278,7 +290,31 @@ function detectMobile() {
   const isSmallScreen = window.matchMedia("(max-width: 768px)").matches;
   return /android|iphone|ipod|blackberry|iemobile|opera mini/i.test(ua) || isSmallScreen;
 }
+/** Crop/zoom is a small-screen feature; on desktop we show the full video. */
+const isMobileView = ref(detectMobile());
 const videoHeight = ref(320);
+/**
+ * Supersampling: render the YouTube iframe at >= 1080p and visually scale it
+ * down to the display size. YouTube picks stream quality from the iframe's
+ * layout size (not the CSS transform), so a large iframe gets a 1080p stream,
+ * and the crop then zooms into a high-res source instead of a phone-width one.
+ */
+const viewportWidth = ref(window.innerWidth);
+/**
+ * Target ~1080p of *device* pixels. Sizing for more (the iframe's CSS px x
+ * devicePixelRatio) makes YouTube over-request 1440p/4K, which phones can't
+ * sustain — so it collapses to 480p. 1080p is the reliable sweet spot.
+ */
+const RENDER_TARGET_DEVICE_W = 1920;
+const renderWidth = computed(() => {
+  const dpr = window.devicePixelRatio || 1;
+  return Math.max(viewportWidth.value, Math.round(RENDER_TARGET_DEVICE_W / dpr));
+});
+const renderHeight = computed(() =>
+  Math.max(1, Math.round(renderWidth.value * (videoHeight.value / Math.max(1, viewportWidth.value)))),
+);
+/** Factor that scales the high-res iframe back down to the display size. */
+const ytScale = computed(() => viewportWidth.value / renderWidth.value);
 /** Height of the title row inside .player (padding + span + margin) so spacer matches exactly */
 const PLAYER_HEADER_PX = 40;
 /** Height reserved for the seek-bar row (shown only when not fullscreen). */
@@ -293,6 +329,21 @@ const duration = ref(0);
 const seeking = ref(false);
 let progressTimer: ReturnType<typeof setInterval> | null = null;
 
+/** Dev-only playback-quality badge (so you can confirm HD on a real device). */
+const playbackQuality = ref('');
+const availableQuality = ref<string[]>([]);
+const QUALITY_LABELS: Record<string, string> = {
+  highres: '>1080p', hd2160: '2160p', hd1440: '1440p', hd1080: '1080p',
+  hd720: '720p', large: '480p', medium: '360p', small: '240p', tiny: '144p',
+};
+const labelOf = (q: string) => QUALITY_LABELS[q] ?? q;
+const qualityLabel = computed(() => {
+  const cur = playbackQuality.value;
+  const top = availableQuality.value.filter(l => l !== 'auto')[0]; // highest-first
+  const curStr = !cur || cur === 'unknown' ? '…' : labelOf(cur);
+  return top ? `${curStr} / max ${labelOf(top)}` : curStr;
+});
+
 /** Poll the player for time/duration (the YT API doesn't push updates). */
 function startProgressPolling() {
   if (progressTimer) return;
@@ -301,9 +352,13 @@ function startProgressPolling() {
     const d = player.getDuration?.() ?? 0;
     if (d) duration.value = d;
     currentTime.value = player.getCurrentTime();
+    if (isDev) {
+      playbackQuality.value = player.getPlaybackQuality?.() ?? '';
+      availableQuality.value = player.getAvailableQualityLevels?.() ?? [];
+    }
 
-    // Reverse "exit" pan over the final seconds of the video.
-    if (duration.value > 0) {
+    // Reverse "exit" pan over the final seconds of the video (mobile only).
+    if (isMobileView.value && duration.value > 0) {
       const remaining = duration.value - currentTime.value;
       if (!endPanStarted && !cropAnimating && remaining <= END_PAN_START_BEFORE && remaining > 0) {
         endPanStarted = true;
@@ -327,7 +382,7 @@ function onSeekCommit(e: Event) {
   player?.seekTo?.(t, true);
   currentTime.value = t;
   seeking.value = false;
-  if (t <= 0.5) {
+  if (t <= 0.5 && isMobileView.value) {
     // Scrubbed back to the start: replay the intro pan-in once playback resumes.
     endPanStarted = false;
     prepareCropForPlayback({ ...crop.value });
@@ -491,16 +546,19 @@ watch([showCropControls, fullScreen, saveStatus], () => {
 
 const playerTotalHeight = computed(
   () => videoHeight.value + PLAYER_HEADER_PX
-    + (fullScreen.value ? 0 : PLAYER_SEEK_PX + PLAYER_ZOOM_PX)
+    + (fullScreen.value ? 0 : PLAYER_SEEK_PX)
+    + (!fullScreen.value && isMobileView.value ? PLAYER_ZOOM_PX : 0)
     + controlsHeight.value,
 );
 const handleOrientation = async () => {
   // Wait 500 ms to allow orientation change to complete
   await new Promise(resolve => setTimeout(resolve, 500));
   // Initialize video height based on 16:9 aspect ratio
+  viewportWidth.value = window.innerWidth;
   videoHeight.value = window.innerWidth * (12 / 16);
   let landscape = window.screen.orientation.type.startsWith('landscape');
   const isMobile = detectMobile();
+  isMobileView.value = isMobile;
   if (!isMobile) {
     console.log('Not a mobile device, forcing portrait mode');
     landscape = false;
@@ -521,7 +579,7 @@ const handleOrientation = async () => {
   console.log('Orientation changed, video height set to:', videoHeight.value);
   // Set player height if player exists
   if (player) {
-    player.setSize(window.innerWidth, videoHeight.value);
+    player.setSize(renderWidth.value, renderHeight.value);
     applyCrop();
   } else {
     console.log('Player not initialized yet');
@@ -536,21 +594,31 @@ watch(selectedVideo, async (newVideo) => {
     // zoom/pan in now; for a brand-new player onReady does it once the iframe exists.
     currentTime.value = 0; // reset the seek bar for the newly selected video
     endPanStarted = false; // re-arm the end-of-video reverse pan
-    const songParts = (videostore.videosByBasename[newVideo.basename] ?? []).map(v => v.part);
-    const target = resolveCrop(cropPresets, newVideo.basename, newVideo.part, songParts);
-    prepareCropForPlayback(target); // stay zoomed out; pan in when playback starts
+    if (isMobileView.value) {
+      const songParts = (videostore.videosByBasename[newVideo.basename] ?? []).map(v => v.part);
+      const target = resolveCrop(cropPresets, newVideo.basename, newVideo.part, songParts);
+      prepareCropForPlayback(target); // stay zoomed out; pan in when playback starts
+    } else {
+      // Desktop: no crop — show the full video.
+      pendingCrop = null;
+      cropAnimating = false;
+      crop.value = { ...IDENTITY_CROP };
+      applyCrop(false);
+    }
     if (!player) {
       // wait 1ms
       await new Promise(resolve => setTimeout(resolve, 1));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       player = new ((window as Window).YT as any).Player('yt-frame', {
-        height: videoHeight.value.toString(),
-        width: window.innerWidth.toString(),
+        height: renderHeight.value.toString(),
+        width: renderWidth.value.toString(),
         playerVars: {
-          controls: 0,
-          disablekb: 1,
+          // Desktop has no crop, so show YouTube's native controls (incl. the
+          // quality gear). Mobile keeps them hidden for the custom crop UI.
+          controls: isMobileView.value ? 0 : 1,
+          disablekb: isMobileView.value ? 1 : 0,
           enablejsapi: 1,
-          fs: 0,
+          fs: isMobileView.value ? 0 : 1,
           iv_load_policy: 3,
           modestbranding: 1,
           rel: 0,
@@ -585,7 +653,7 @@ watch(selectedVideo, async (newVideo) => {
         }
       });
     } else {
-      player.loadVideoById({ videoId: String(newVideo.id), suggestedQuality: 'highres' });
+      player.loadVideoById({ videoId: String(newVideo.id), suggestedQuality: MAX_QUALITY });
     }
     console.log('Player created', player);
   }
@@ -631,6 +699,7 @@ if (user) {
           @click="seekBy(10)"
         >10⟳</button>
         <button
+          v-if="isMobileView"
           type="button"
           class="crop-toggle"
           :class="{ active: showCropControls }"
@@ -639,10 +708,17 @@ if (user) {
         >⛶</button>
       </div>
       <div id="yt-wrapper" class="player-yt-wrapper" :style="{ height: `${videoHeight}px` }">
-        <div id="yt-frame"></div>
-        <!-- Transparent catcher: blocks YouTube's own hover/title/share/end-screen
-             chrome and intercepts taps to toggle play/pause via the API. -->
-        <div class="yt-blocker" @click="toggleYtPlayback"></div>
+        <!-- Hi-res iframe rendered at >=1080p, scaled down to the display size. -->
+        <div
+          class="yt-scaler"
+          :style="{ width: `${renderWidth}px`, height: `${renderHeight}px`, transform: `scale(${ytScale})` }"
+        >
+          <div id="yt-frame"></div>
+        </div>
+        <!-- Mobile only: blocks YouTube's hover/title/end-screen chrome and
+             toggles play/pause. Desktop uses YouTube's native controls instead. -->
+        <div v-if="isMobileView" class="yt-blocker" @click="toggleYtPlayback"></div>
+        <div v-if="isDev" class="quality-badge">{{ qualityLabel }}</div>
       </div>
       <div v-if="!fullScreen" class="seek-bar-row">
         <span class="seek-time">{{ fmtTime(currentTime) }}</span>
@@ -659,13 +735,13 @@ if (user) {
         />
         <span class="seek-time">{{ fmtTime(duration) }}</span>
       </div>
-      <div v-if="!fullScreen" class="crop-zoom-row">
+      <div v-if="!fullScreen && isMobileView" class="crop-zoom-row">
         <label class="crop-slider">
           <span>Zoom</span>
           <input type="range" min="1" max="3" step="0.05" v-model.number="crop.scale" />
         </label>
       </div>
-      <div v-if="showCropControls && !fullScreen" ref="controlsRef" class="crop-controls">
+      <div v-if="showCropControls && !fullScreen && isMobileView" ref="controlsRef" class="crop-controls">
         <label class="crop-slider">
           <span>↔</span>
           <input type="range" min="0" max="100" step="1" v-model.number="crop.originX" />
@@ -849,6 +925,29 @@ body {
   flex-shrink: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+/* High-res render surface, downscaled to fit the wrapper via transform. */
+.yt-scaler {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: top left;
+}
+
+/* Dev-only playback-quality readout. */
+.quality-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 4;
+  pointer-events: none;
+  padding: 2px 6px;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
 }
 
 /* Covers the visible video window; sits above the (scaled) iframe so none of
