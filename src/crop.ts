@@ -64,9 +64,13 @@ function isAllPart(part: string): boolean {
   return part === 'Kaikki' || part === 'ALL';
 }
 
-/** Vertical rank of a voice part: sopranos high (top) ... basses low (bottom). */
-function voiceRank(part: string): number {
+/**
+ * Vertical rank of a voice part: sopranos high (top) ... basses low (bottom).
+ * Mezzo sits between sopranos and altos; unknown parts go last.
+ */
+export function voiceRank(part: string): number {
   if (isAllPart(part)) return 0;
+  if (part === 'Mezzo') return 1.5;
   const rank: Record<string, number> = { S: 1, A: 2, W: 3, T: 4, B: 5, M: 6 };
   return rank[part[0]] ?? 99;
 }
