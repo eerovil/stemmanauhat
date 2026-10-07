@@ -27,9 +27,25 @@ export function emptyPresets(): CropPresets {
   return { byPart: {}, bySong: {} };
 }
 
-/** If part is like "S1-1", return "S1"; otherwise return the part unchanged. */
+/** If part is like "S1-1" or "S1b", return "S1"; otherwise return the part unchanged. */
 export function cropBasePart(part: string): string {
-  return part.replace(/-\d+$/, '');
+  return part.replace(/(\d)[a-z]?(?:-\d+)?$/, '$1');
+}
+
+/**
+ * Compare two parts of the same voice by part number, then divisi letter (none
+ * first), then divisi number: S1 < S1-1 < S1-2 < S1a < S1b < S2. Parsed separately so
+ * T1-1 -> 1,1 (not 11).
+ */
+export function compareVoiceNums(a: string, b: string): number {
+  const nums = (p: string): [number, number, number] => {
+    const m = p.match(/(\d+)([a-z])?(?:-(\d+))?/);
+    if (!m) return [0, 0, 0];
+    return [+m[1], m[2] ? m[2].charCodeAt(0) - 96 : 0, m[3] ? +m[3] : 0];
+  };
+  const na = nums(a);
+  const nb = nums(b);
+  return na[0] - nb[0] || na[1] - nb[1] || na[2] - nb[2];
 }
 
 /**
@@ -63,15 +79,8 @@ export function orderVoiceParts(parts: string[]): string[] {
     .sort((a, b) => {
       const r = voiceRank(a) - voiceRank(b);
       if (r !== 0) return r;
-      // Part number then divisi, parsed separately so T1-1 -> 1,1 (not 11) and
-      // the whole T1 group sorts before T2.
-      const nums = (p: string): [number, number] => {
-        const m = p.match(/(\d+)(?:-(\d+))?/);
-        return [m ? +m[1] : 0, m && m[2] ? +m[2] : 0];
-      };
-      const [pa, sa] = nums(a);
-      const [pb, sb] = nums(b);
-      return pa !== pb ? pa - pb : sa - sb;
+      // Part number then divisi, so the whole T1 group sorts before T2.
+      return compareVoiceNums(a, b);
     });
 }
 
