@@ -113,13 +113,15 @@ export function defaultCropForPart(part: string, songParts: string[] = []): Crop
 /**
  * Resolve the crop for a selected video, most specific first:
  * per-song+part -> per-song+basePart -> global part -> global basePart ->
- * generalized per-part default (spaced across `songParts`).
+ * the video's own staff metadata -> generalized per-part default (spaced
+ * across `songParts`).
  */
 export function resolveCrop(
   presets: CropPresets | null | undefined,
   basename: string,
   part: string,
   songParts: string[] = [],
+  staff?: { staff?: number; staves?: number },
 ): Crop {
   const base = cropBasePart(part);
   const song = presets?.bySong?.[basename];
@@ -128,5 +130,13 @@ export function resolveCrop(
     (base !== part ? song?.[base] : undefined) ??
     presets?.byPart?.[part] ??
     (base !== part ? presets?.byPart?.[base] : undefined);
-  return found ? { ...found } : defaultCropForPart(part, songParts);
+  if (found) return { ...found };
+  if (staff?.staff && staff.staves && !isAllPart(part)) {
+    return {
+      scale: DEFAULT_CROP_SCALE,
+      originX: DEFAULT_CROP_ORIGIN_X,
+      originY: ((staff.staff - 0.5) / staff.staves) * 100,
+    };
+  }
+  return defaultCropForPart(part, songParts);
 }

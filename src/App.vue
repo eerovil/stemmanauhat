@@ -638,7 +638,7 @@ watch(selectedVideo, async (newVideo) => {
     endPanStarted = false; // re-arm the end-of-video reverse pan
     if (isMobileView.value) {
       const songParts = (videostore.videosByBasename[newVideo.basename] ?? []).map(v => v.part);
-      const target = resolveCrop(cropPresets, newVideo.basename, newVideo.part, songParts);
+      const target = resolveCrop(cropPresets, newVideo.basename, newVideo.part, songParts, newVideo);
       prepareCropForPlayback(target); // stay zoomed out; pan in when playback starts
     } else {
       // Desktop: no crop — show the full video.
