@@ -110,10 +110,13 @@ function voiceRows(videos: ExtendedVideo[]): ExtendedVideo[][] {
   return rows;
 }
 
-/** True if this part should show the "my part" highlight (exact match or base match, e.g. S1 when preferred is S1-1). */
-function isMyPart(preferred: string | null, part: string): boolean {
+/**
+ * True if this part should show the "my part" highlight: the exact part, or
+ * its base (S1 when preferred is S1b) only if the song has no exact match.
+ */
+function isMyPart(preferred: string | null, part: string, group: ExtendedVideo[]): boolean {
   if (!preferred) return false;
-  return preferred === part || basePart(preferred) === part;
+  return findVideoForPart(group, preferred)?.part === part;
 }
 
 /** Find video by exact part, or by base part (e.g. S1 when stored part is S1-1). Store is never changed. */
@@ -856,7 +859,7 @@ if (user) {
         <div v-if="videos.find(v => v.part === 'Kaikki')" class="video-button video-button-all">
           <button
             @click="selectVideo(videos.find(v => v.part === 'Kaikki') as ExtendedVideo)"
-            :class="{ 'my-part': isMyPart(preferredVoice, 'Kaikki') }"
+            :class="{ 'my-part': isMyPart(preferredVoice, 'Kaikki', videos) }"
           >
             Kaikki
           </button>
@@ -871,7 +874,7 @@ if (user) {
             <div v-for="video in row" :key="video.id" class="video-button">
               <button
                 @click="selectVideo(video)"
-                :class="{ 'my-part': isMyPart(preferredVoice, video.part) }"
+                :class="{ 'my-part': isMyPart(preferredVoice, video.part, videos) }"
               >
                 {{ video.part }}
               </button>
