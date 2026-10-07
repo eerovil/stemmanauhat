@@ -141,7 +141,7 @@ function selectVideo(video: ExtendedVideo) {
 }
 
 /** Song list ordering. */
-const sortMode = ref<'name' | 'date'>('name');
+const sortMode = ref<'name' | 'date'>('date');
 
 const filteredVideosByBasename = computed(() => {
   let entries = Object.entries(videostore.videosByBasename);
