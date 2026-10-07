@@ -855,6 +855,14 @@ if (user) {
           class="new-badge"
         >Uusi</span>
         <span class="video-group-date">{{ timeString(videos[0].publishedAt) }}</span>
+        <button
+          v-if="selectedVideo && expandedBasename === basename"
+          type="button"
+          class="close-song"
+          aria-label="Sulje"
+          title="Sulje"
+          @click.stop="toggleGroup(String(basename))"
+        >×</button>
       </header>
       <div v-show="expandedBasename === basename" class="video-button-wrapper">
         <div v-if="videos.find(v => v.part === 'Kaikki')" class="video-button video-button-all">
@@ -1226,6 +1234,25 @@ body {
 .video-group-date {
   font-size: 0.8rem;
   color: #666;
+}
+
+/* Closes the open song (same as tapping its title), pinned to the right. */
+.close-song {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 1px solid #ccc;
+  border-radius: 50%;
+  background: #fff;
+  color: #333;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.close-song:hover {
+  background: #f0f0f0;
 }
 
 .video-group {
