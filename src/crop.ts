@@ -35,7 +35,7 @@ export function cropBasePart(part: string): string {
 /**
  * Compare two parts of the same voice by part number, then divisi letter (none
  * first), then divisi number: S1 < S1-1 < S1-2 < S1a < S1b < S2. Parsed separately so
- * T1-1 -> 1,1 (not 11).
+ * T1-1 -> 1,1 (not 11). Names without numbers fall back to alphabetical order.
  */
 export function compareVoiceNums(a: string, b: string): number {
   const nums = (p: string): [number, number, number] => {
@@ -45,7 +45,7 @@ export function compareVoiceNums(a: string, b: string): number {
   };
   const na = nums(a);
   const nb = nums(b);
-  return na[0] - nb[0] || na[1] - nb[1] || na[2] - nb[2];
+  return na[0] - nb[0] || na[1] - nb[1] || na[2] - nb[2] || a.localeCompare(b, 'fi');
 }
 
 /**
@@ -64,9 +64,15 @@ function isAllPart(part: string): boolean {
   return part === 'Kaikki' || part === 'ALL';
 }
 
-/** Vertical rank of a voice part: sopranos high (top) ... basses low (bottom). */
-function voiceRank(part: string): number {
+/**
+ * Vertical rank of a voice part: sopranos high (top) ... basses low (bottom).
+ * Solo goes on top, Mezzo between sopranos and altos; any other name is placed
+ * by its first letter (Baritoni with the basses), or last if that says nothing.
+ */
+export function voiceRank(part: string): number {
   if (isAllPart(part)) return 0;
+  if (part === 'Solo') return 0.5;
+  if (part === 'Mezzo') return 1.5;
   const rank: Record<string, number> = { S: 1, A: 2, W: 3, T: 4, B: 5, M: 6 };
   return rank[part[0]] ?? 99;
 }
@@ -91,9 +97,12 @@ export function orderVoiceParts(parts: string[]): string[] {
  */
 export function defaultCropForPart(part: string, songParts: string[] = []): Crop {
   if (isAllPart(part)) return { ...IDENTITY_CROP };
-  const ordered = orderVoiceParts(songParts);
+  // A letter split (S1a, S1b) is sung from its voice's staff (S1), so it
+  // shares that row; a numbered split (S1-1) can have a staff of its own.
+  const staff = (p: string) => p.replace(/(\d)[a-z](?=(?:-\d+)?$)/, '$1');
+  const ordered = [...new Set(orderVoiceParts(songParts).map(staff))];
   const base = cropBasePart(part);
-  let row = ordered.indexOf(part);
+  let row = ordered.indexOf(staff(part));
   if (row < 0) row = ordered.indexOf(base);
   if (row < 0 || ordered.length === 0) return { ...IDENTITY_CROP };
   return {
@@ -106,13 +115,15 @@ export function defaultCropForPart(part: string, songParts: string[] = []): Crop
 /**
  * Resolve the crop for a selected video, most specific first:
  * per-song+part -> per-song+basePart -> global part -> global basePart ->
- * generalized per-part default (spaced across `songParts`).
+ * the video's own staff metadata -> generalized per-part default (spaced
+ * across `songParts`).
  */
 export function resolveCrop(
   presets: CropPresets | null | undefined,
   basename: string,
   part: string,
   songParts: string[] = [],
+  staff?: { staff?: number; staves?: number },
 ): Crop {
   const base = cropBasePart(part);
   const song = presets?.bySong?.[basename];
@@ -121,5 +132,13 @@ export function resolveCrop(
     (base !== part ? song?.[base] : undefined) ??
     presets?.byPart?.[part] ??
     (base !== part ? presets?.byPart?.[base] : undefined);
-  return found ? { ...found } : defaultCropForPart(part, songParts);
+  if (found) return { ...found };
+  if (staff?.staff && staff.staves && !isAllPart(part)) {
+    return {
+      scale: DEFAULT_CROP_SCALE,
+      originX: DEFAULT_CROP_ORIGIN_X,
+      originY: ((staff.staff - 0.5) / staff.staves) * 100,
+    };
+  }
+  return defaultCropForPart(part, songParts);
 }

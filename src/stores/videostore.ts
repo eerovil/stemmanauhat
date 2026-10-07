@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { Video } from './secrets/update-videos';
-import { compareVoiceNums } from '../crop';
+import { compareVoiceNums, voiceRank } from '../crop';
 
 // New Video type that extends the previous one with new fields
 export type ExtendedVideo = Video & {
@@ -13,18 +13,38 @@ export type ExtendedVideo = Video & {
 export const useVideoStore = defineStore('video', () => {
   const videos = ref([] as ExtendedVideo[]);
 
-  // Either S1, T1, A1, B1, etc. (optionally split: S1a, S1b, S1-1, S1-2)
-  // or "ALL"
-  const partnameRegex: RegExp = /((A|B|T|S)\d[a-z]?(-\d)?|ALL|Kaikki|Solo)$/;
+  // Either S1, T1, A1, B1, etc. (optionally split: S1a, S1b, S1-1, S1-2),
+  // Mezzo, Solo (or "solo"), or "ALL"
+  // (a whole last word, so "Barisolo" is not read as Solo)
+  const partnameRegex: RegExp = /(?<=^|\s)((A|B|T|S)\d[a-z]?(-\d)?|Mezzo|ALL|Kaikki|[Ss]olo)$/;
+
+  // Any other part name works too: titles are "<song> <part>", so when two or
+  // more videos share everything but the last word, that word is the part.
+  // A lone video that matches nothing holds every part (see UNKNOWN below).
+  const splitLastWord = (title: string): [string, string] => {
+    const i = title.trimEnd().lastIndexOf(' ');
+    return i < 0 ? ['', title.trim()] : [title.slice(0, i).trim(), title.slice(i + 1).trim()];
+  };
+  const cleanBasename = (s: string) => s.replace("stemmanauha", "").replace("Stemmanauha", "").trim();
 
   function setVideos(v: Video[]) {
-    videos.value = v
-      .filter((vid) => vid.title !== 'Deleted video')
-      .map((vid) => {
+    const kept = v.filter((vid) => vid.title !== 'Deleted video');
+    const songSize = new Map<string, number>();
+    for (const vid of kept) {
+      const [song] = splitLastWord(vid.title);
+      songSize.set(song, (songSize.get(song) ?? 0) + 1);
+    }
+    videos.value = kept.map((vid) => {
       const partMatch = vid.title.match(partnameRegex);
-      const part = (partMatch ? partMatch[0] : "UNKNOWN").replace('ALL', 'Kaikki');
-      const basename = vid.title.replace(partnameRegex, "").replace("stemmanauha", "").replace("Stemmanauha", "").trim();
-      return { ...vid, part, basename };
+      if (partMatch) {
+        const part = partMatch[0].replace('ALL', 'Kaikki').replace(/^solo$/, 'Solo');
+        return { ...vid, part, basename: cleanBasename(vid.title.replace(partnameRegex, "")) };
+      }
+      const [song, last] = splitLastWord(vid.title);
+      if (song && (songSize.get(song) ?? 0) >= 2 && !/^stemmanauha$/i.test(last)) {
+        return { ...vid, part: last, basename: cleanBasename(song) };
+      }
+      return { ...vid, part: "UNKNOWN", basename: cleanBasename(vid.title) };
     });
   }
   const videosByBasename = computed(() => {
@@ -51,21 +71,11 @@ export const useVideoStore = defineStore('video', () => {
       }
     }
     // Sort each array by part names as follows:
-    // ALL/Kaikki first, then S, then A, then W, then T, then B, then M
+    // ALL/Kaikki first, then S, then Mezzo, then A, then W, then T, then B, then M
     for (const key in ret) {
       ret[key].sort((a, b) => {
-        const order = (part: string) => {
-          if (part === "ALL" || part === "Kaikki") return 0;
-          if (part.startsWith("S")) return 1;
-          if (part.startsWith("A")) return 2;
-          if (part.startsWith("W")) return 3;
-          if (part.startsWith("T")) return 4;
-          if (part.startsWith("B")) return 5;
-          if (part.startsWith("M")) return 6;
-          return 99; // Unknown parts go last
-        };
-        const orderA = order(a.part);
-        const orderB = order(b.part);
+        const orderA = voiceRank(a.part);
+        const orderB = voiceRank(b.part);
         if (orderA !== orderB) {
           return orderA - orderB;
         }

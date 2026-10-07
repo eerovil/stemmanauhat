@@ -10,6 +10,7 @@ import {
   cropBasePart,
   emptyPresets,
   resolveCrop,
+  voiceRank,
 } from './crop';
 
 const secretstore = useSecretStore();
@@ -96,7 +97,7 @@ function basePart(part: string): string {
 
 /**
  * A song's parts (without Kaikki) grouped by voice, keeping their order:
- * [S1a, S1b, S2], [A1, A2], [T1, T2], ... On a phone each voice gets its own
+ * [Solo], [S1a, S1b, S2], [A1, A2], [T1, T2], ... On a phone each voice gets its own
  * row so a row never mixes voices.
  */
 function voiceRows(videos: ExtendedVideo[]): ExtendedVideo[][] {
@@ -104,7 +105,7 @@ function voiceRows(videos: ExtendedVideo[]): ExtendedVideo[][] {
   for (const v of videos) {
     if (v.part === 'Kaikki') continue;
     const last = rows[rows.length - 1];
-    if (last && last[0].part[0] === v.part[0]) last.push(v);
+    if (last && voiceRank(last[0].part) === voiceRank(v.part)) last.push(v);
     else rows.push([v]);
   }
   return rows;
@@ -638,7 +639,7 @@ watch(selectedVideo, async (newVideo) => {
     endPanStarted = false; // re-arm the end-of-video reverse pan
     if (isMobileView.value) {
       const songParts = (videostore.videosByBasename[newVideo.basename] ?? []).map(v => v.part);
-      const target = resolveCrop(cropPresets, newVideo.basename, newVideo.part, songParts);
+      const target = resolveCrop(cropPresets, newVideo.basename, newVideo.part, songParts, newVideo);
       prepareCropForPlayback(target); // stay zoomed out; pan in when playback starts
     } else {
       // Desktop: no crop — show the full video.

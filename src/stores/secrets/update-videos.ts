@@ -18,6 +18,19 @@ export type Video = {
   title: string;
   publishedAt: string; // ISO date
   thumbnail: string;   // URL
+  // From a "stemmanauha-staff: 2/6" line in the video description: the part's
+  // staff, counted from the top, and how many staves the video shows.
+  staff?: number;
+  staves?: number;
+}
+
+/** Read "stemmanauha-staff: <staff>/<staves>" from a video description. */
+export function parseStaff(description: string): { staff: number; staves: number } | undefined {
+  const m = description.match(/^stemmanauha-staff:\s*(\d+)\s*\/\s*(\d+)\s*$/m);
+  if (!m) return undefined;
+  const staff = +m[1];
+  const staves = +m[2];
+  return staff >= 1 && staff <= staves ? { staff, staves } : undefined;
 }
 
 type PlainData = {
@@ -55,6 +68,7 @@ async function fetchPlaylistVideos(playlistId: string): Promise<Video[]> {
           title: item.snippet?.title || "",
           publishedAt: item.contentDetails.videoPublishedAt || "",
           thumbnail: item.snippet?.thumbnails?.default?.url || "",
+          ...parseStaff(item.snippet?.description || ""),
         });
       }
     }
