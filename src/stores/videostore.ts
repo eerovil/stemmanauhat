@@ -14,15 +14,15 @@ export const useVideoStore = defineStore('video', () => {
   const videos = ref([] as ExtendedVideo[]);
 
   // Either S1, T1, A1, B1, etc. (optionally split: S1a, S1b, S1-1, S1-2),
-  // Mezzo, or "ALL"
-  const partnameRegex: RegExp = /((A|B|T|S)\d[a-z]?(-\d)?|Mezzo|ALL|Kaikki|Solo)$/;
+  // Mezzo, Solo (or "solo"), or "ALL"
+  const partnameRegex: RegExp = /((A|B|T|S)\d[a-z]?(-\d)?|Mezzo|ALL|Kaikki|[Ss]olo)$/;
 
   function setVideos(v: Video[]) {
     videos.value = v
       .filter((vid) => vid.title !== 'Deleted video')
       .map((vid) => {
       const partMatch = vid.title.match(partnameRegex);
-      const part = (partMatch ? partMatch[0] : "UNKNOWN").replace('ALL', 'Kaikki');
+      const part = (partMatch ? partMatch[0] : "UNKNOWN").replace('ALL', 'Kaikki').replace(/^solo$/, 'Solo');
       const basename = vid.title.replace(partnameRegex, "").replace("stemmanauha", "").replace("Stemmanauha", "").trim();
       return { ...vid, part, basename };
     });

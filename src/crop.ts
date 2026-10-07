@@ -95,9 +95,12 @@ export function orderVoiceParts(parts: string[]): string[] {
  */
 export function defaultCropForPart(part: string, songParts: string[] = []): Crop {
   if (isAllPart(part)) return { ...IDENTITY_CROP };
-  const ordered = orderVoiceParts(songParts);
+  // A letter split (S1a, S1b) is sung from its voice's staff (S1), so it
+  // shares that row; a numbered split (S1-1) can have a staff of its own.
+  const staff = (p: string) => p.replace(/(\d)[a-z](?=(?:-\d+)?$)/, '$1');
+  const ordered = [...new Set(orderVoiceParts(songParts).map(staff))];
   const base = cropBasePart(part);
-  let row = ordered.indexOf(part);
+  let row = ordered.indexOf(staff(part));
   if (row < 0) row = ordered.indexOf(base);
   if (row < 0 || ordered.length === 0) return { ...IDENTITY_CROP };
   return {
