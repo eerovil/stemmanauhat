@@ -7,6 +7,7 @@ import {
   type Crop,
   type CropPresets,
   IDENTITY_CROP,
+  cropBasePart,
   emptyPresets,
   resolveCrop,
 } from './crop';
@@ -88,10 +89,9 @@ function loadLastPractisedSnapshot() {
   }
 }
 
-/** If part is like S1-1, return S1; else return part. Used to fall back when a song has no S1-1. */
+/** If part is like S1-1 or S1b, return S1; else return part. Used to fall back when a song has no S1-1. */
 function basePart(part: string): string {
-  const base = part.replace(/-\d+$/, '');
-  return base !== part ? base : part;
+  return cropBasePart(part);
 }
 
 /** True if this part should show the "my part" highlight (exact match or base match, e.g. S1 when preferred is S1-1). */

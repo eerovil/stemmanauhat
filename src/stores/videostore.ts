@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import { defineStore } from 'pinia'
 import type { Video } from './secrets/update-videos';
+import { compareVoiceNums } from '../crop';
 
 // New Video type that extends the previous one with new fields
 export type ExtendedVideo = Video & {
@@ -12,9 +13,9 @@ export type ExtendedVideo = Video & {
 export const useVideoStore = defineStore('video', () => {
   const videos = ref([] as ExtendedVideo[]);
 
-  // Either S1, T1, A1, B1, etc.
+  // Either S1, T1, A1, B1, etc. (optionally split: S1a, S1b, S1-1, S1-2)
   // or "ALL"
-  const partnameRegex: RegExp = /((A|B|T|S)\d(-\d)?|ALL|Kaikki|Solo)$/;
+  const partnameRegex: RegExp = /((A|B|T|S)\d[a-z]?(-\d)?|ALL|Kaikki|Solo)$/;
 
   function setVideos(v: Video[]) {
     videos.value = v
@@ -69,15 +70,9 @@ export const useVideoStore = defineStore('video', () => {
           return orderA - orderB;
         }
         // Same category: sort by part number, then divisi (e.g. T1-1 before T1-2,
-        // and the whole T1 group before T2). Parse the numbers separately so the
-        // divisi suffix isn't concatenated (T1-1 -> 1,1 not 11).
-        const parseNums = (part: string): [number, number] => {
-          const m = part.match(/(\d+)(?:-(\d+))?/);
-          return [m ? +m[1] : 0, m && m[2] ? +m[2] : 0];
-        };
-        const [pa, sa] = parseNums(a.part);
-        const [pb, sb] = parseNums(b.part);
-        return pa !== pb ? pa - pb : sa - sb;
+        // S1a before S1b, and the whole T1 group before T2). Parse the numbers
+        // separately so the divisi suffix isn't concatenated (T1-1 -> 1,1 not 11).
+        return compareVoiceNums(a.part, b.part);
       });
     }
 
