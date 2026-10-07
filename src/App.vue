@@ -94,6 +94,22 @@ function basePart(part: string): string {
   return cropBasePart(part);
 }
 
+/**
+ * A song's parts (without Kaikki) grouped by voice, keeping their order:
+ * [S1a, S1b, S2], [A1, A2], [T1, T2], ... On a phone each voice gets its own
+ * row so a row never mixes voices.
+ */
+function voiceRows(videos: ExtendedVideo[]): ExtendedVideo[][] {
+  const rows: ExtendedVideo[][] = [];
+  for (const v of videos) {
+    if (v.part === 'Kaikki') continue;
+    const last = rows[rows.length - 1];
+    if (last && last[0].part[0] === v.part[0]) last.push(v);
+    else rows.push([v]);
+  }
+  return rows;
+}
+
 /** True if this part should show the "my part" highlight (exact match or base match, e.g. S1 when preferred is S1-1). */
 function isMyPart(preferred: string | null, part: string): boolean {
   if (!preferred) return false;
@@ -846,13 +862,20 @@ if (user) {
           </button>
         </div>
         <div class="other-videos">
-          <div v-for="video in videos.filter(v => v.part !== 'Kaikki')" :key="video.id" class="video-button">
-            <button
-              @click="selectVideo(video)"
-              :class="{ 'my-part': isMyPart(preferredVoice, video.part) }"
-            >
-              {{ video.part }}
-            </button>
+          <div
+            v-for="row in voiceRows(videos)"
+            :key="row[0].part"
+            class="voice-row"
+            :style="{ flexGrow: row.length }"
+          >
+            <div v-for="video in row" :key="video.id" class="video-button">
+              <button
+                @click="selectVideo(video)"
+                :class="{ 'my-part': isMyPart(preferredVoice, video.part) }"
+              >
+                {{ video.part }}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1225,15 +1248,31 @@ body {
 }
 
 .other-videos {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-bottom: 1rem;
   width: 100%;
 }
 
+/* One voice (S, A, T, B...). Side by side on wide screens, sized by button
+   count (flex-grow set inline); one row each on a phone. */
+.voice-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-basis: 0;
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .voice-row {
+    flex-basis: 100%;
+  }
+}
+
 .video-button {
   flex: 1;
+  min-width: 0;
 }
 
 .video-button button {
